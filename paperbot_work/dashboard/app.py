@@ -108,7 +108,7 @@ def get_equity_history():
         history = client.get_portfolio_history(request)
         ts = getattr(history, "timestamp", None) or []
         equity = getattr(history, "equity", None) or []
-        if not ts or not equity:
+        if ts is None or equity is None or len(ts) == 0 or len(equity) == 0:
             return None
         frame = pd.DataFrame({"time": pd.to_datetime(ts, unit="s", utc=True), "equity": pd.to_numeric(equity)})
         return frame.dropna()
@@ -249,10 +249,11 @@ def main():
             fig.update_yaxes(gridcolor=GRID)
             st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": True, "displaylogo": False})
             latest = bars.iloc[-1]
-            st.columns(4)[0].metric("Last close", fmt_money(latest["close"]))
-            st.columns(4)[1].metric("Bar high", fmt_money(latest["high"]))
-            st.columns(4)[2].metric("Bar low", fmt_money(latest["low"]))
-            st.columns(4)[3].metric("Volume", f"{latest['volume']:,.0f}")
+            quote_cols = st.columns(4)
+            quote_cols[0].metric("Last close", fmt_money(latest["close"]))
+            quote_cols[1].metric("Bar high", fmt_money(latest["high"]))
+            quote_cols[2].metric("Bar low", fmt_money(latest["low"]))
+            quote_cols[3].metric("Volume", f"{latest['volume']:,.0f}")
         else:
             st.warning("No market bars returned for this instrument/timeframe.")
         st.caption("Market data is supplied by Alpaca. Stock feed availability depends on your account/data entitlement.")
