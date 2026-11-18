@@ -1,431 +1,217 @@
 """
-Orochi Terminal — Professional Glassmorphism Dashboard
-Dark + Gold aesthetic, TikTok-ready
-Fast load: UI first, scan only on demand
+Orochi Terminal — real-market-data research dashboard.
+Paper-only: this UI does not submit orders.
 """
-
-import sys
 import os
+import sys
+from datetime import datetime, timezone
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import streamlit as st
-from datetime import datetime
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass
 
 from engine.config import ACCENT_COLOR, ALL_SYMBOLS
+from engine.data import get_bars
 
-# ====================== PAGE CONFIG ======================
-st.set_page_config(
-    page_title="Orochi Terminal",
-    page_icon="⚡",
-    layout="wide",
-    initial_sidebar_state="collapsed",
-)
+st.set_page_config(page_title="Orochi | Quant Terminal", page_icon="⚡", layout="wide",
+                   initial_sidebar_state="collapsed")
 
-# ====================== GLASSMORPHISM CSS ======================
-st.markdown(f"""
+BG = "#090B10"
+PANEL = "#11151E"
+GOLD = "#D4AF37"
+MUTED = "#8993A5"
+GREEN = "#27D99A"
+RED = "#FF5D73"
+
+st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
-
-    .stApp {{
-        background: linear-gradient(160deg, #07080C 0%, #0D0F16 40%, #111318 100%);
-        font-family: 'Inter', sans-serif;
-        color: #E8E6E3;
-    }}
-
-    #MainMenu, footer, header, .stDeployButton {{visibility: hidden; display: none;}}
-
-    .glass {{
-        background: rgba(255, 255, 255, 0.04);
-        backdrop-filter: blur(16px);
-        -webkit-backdrop-filter: blur(16px);
-        border: 1px solid rgba(212, 175, 55, 0.18);
-        border-radius: 16px;
-        padding: 1.25rem 1.5rem;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35),
-                    inset 0 1px 0 rgba(255, 255, 255, 0.06);
-        margin-bottom: 1rem;
-    }}
-
-    .glass-strong {{
-        background: rgba(255, 255, 255, 0.06);
-        backdrop-filter: blur(20px);
-        -webkit-backdrop-filter: blur(20px);
-        border: 1px solid rgba(212, 175, 55, 0.28);
-        border-radius: 18px;
-        padding: 1.5rem;
-        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45),
-                    0 0 40px rgba(212, 175, 55, 0.06),
-                    inset 0 1px 0 rgba(255, 255, 255, 0.08);
-    }}
-
-    h1, h2, h3 {{
-        font-family: 'Inter', sans-serif;
-        font-weight: 600;
-        letter-spacing: -0.02em;
-        color: #F5F2EB !important;
-    }}
-
-    .gold {{ color: {ACCENT_COLOR} !important; }}
-
-    .metric-label {{
-        font-size: 0.75rem;
-        font-weight: 500;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        color: rgba(232, 230, 227, 0.55);
-        margin-bottom: 0.25rem;
-    }}
-
-    .metric-value {{
-        font-size: 1.75rem;
-        font-weight: 600;
-        font-family: 'JetBrains Mono', monospace;
-        color: #F5F2EB;
-        line-height: 1.2;
-    }}
-
-    .metric-value.gold {{
-        color: {ACCENT_COLOR};
-        text-shadow: 0 0 24px rgba(212, 175, 55, 0.35);
-    }}
-
-    .badge {{
-        display: inline-block;
-        padding: 0.25rem 0.7rem;
-        border-radius: 999px;
-        font-size: 0.7rem;
-        font-weight: 600;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-    }}
-    .badge-long {{
-        background: rgba(46, 204, 113, 0.15);
-        color: #2ecc71;
-        border: 1px solid rgba(46, 204, 113, 0.35);
-    }}
-    .badge-short {{
-        background: rgba(231, 76, 60, 0.15);
-        color: #e74c3c;
-        border: 1px solid rgba(231, 76, 60, 0.35);
-    }}
-    .badge-none {{
-        background: rgba(255, 255, 255, 0.06);
-        color: rgba(232, 230, 227, 0.5);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-    }}
-    .badge-imbalanced {{
-        background: rgba(212, 175, 55, 0.12);
-        color: {ACCENT_COLOR};
-        border: 1px solid rgba(212, 175, 55, 0.3);
-    }}
-    .badge-balanced {{
-        background: rgba(52, 152, 219, 0.12);
-        color: #3498db;
-        border: 1px solid rgba(52, 152, 219, 0.3);
-    }}
-
-    .score-bar-bg {{
-        height: 6px;
-        background: rgba(255,255,255,0.08);
-        border-radius: 99px;
-        overflow: hidden;
-        margin-top: 0.4rem;
-    }}
-    .score-bar-fill {{
-        height: 100%;
-        border-radius: 99px;
-        background: linear-gradient(90deg, {ACCENT_COLOR}, #F5D76E);
-        box-shadow: 0 0 12px rgba(212, 175, 55, 0.5);
-    }}
-
-    .stButton > button {{
-        background: linear-gradient(135deg, rgba(212,175,55,0.2), rgba(212,175,55,0.08));
-        color: {ACCENT_COLOR};
-        border: 1px solid rgba(212, 175, 55, 0.4);
-        border-radius: 12px;
-        padding: 0.6rem 1.4rem;
-        font-weight: 600;
-        letter-spacing: 0.03em;
-        transition: all 0.2s ease;
-        backdrop-filter: blur(8px);
-    }}
-    .stButton > button:hover {{
-        background: linear-gradient(135deg, rgba(212,175,55,0.35), rgba(212,175,55,0.15));
-        border-color: {ACCENT_COLOR};
-        box-shadow: 0 0 24px rgba(212, 175, 55, 0.25);
-        color: #FFF8E7;
-    }}
-
-    hr {{
-        border: none;
-        height: 1px;
-        background: linear-gradient(90deg, transparent, rgba(212,175,55,0.3), transparent);
-        margin: 1.5rem 0;
-    }}
-
-    .terminal-header {{
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 0.5rem 0 1.5rem 0;
-    }}
-    .logo {{
-        font-size: 1.6rem;
-        font-weight: 700;
-        letter-spacing: -0.03em;
-        background: linear-gradient(120deg, #F5D76E, {ACCENT_COLOR}, #C9A227);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-    }}
-    .status-dot {{
-        width: 8px;
-        height: 8px;
-        background: #2ecc71;
-        border-radius: 50%;
-        display: inline-block;
-        box-shadow: 0 0 10px #2ecc71;
-        margin-right: 6px;
-        animation: pulse 2s infinite;
-    }}
-    @keyframes pulse {{
-        0%, 100% {{ opacity: 1; }}
-        50% {{ opacity: 0.5; }}
-    }}
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Inter:wght@400;500;600;700;800&display=swap');
+:root { color-scheme: dark; }
+.stApp { background: radial-gradient(ellipse at 20% 0%, #171b29 0%, #090b10 48%); color:#e8ebf2; font-family:Inter,sans-serif; }
+#MainMenu, footer, header, .stDeployButton {visibility:hidden;}
+.block-container {padding-top:1.2rem; padding-bottom:2rem; max-width:1600px;}
+h1,h2,h3 {letter-spacing:-.035em;}
+[data-testid="stMetric"] {background:linear-gradient(145deg,#151a25,#0e121a);border:1px solid #252c39;padding:14px 16px;border-radius:12px;}
+[data-testid="stMetricLabel"] {color:#8993a5;}
+[data-testid="stMetricValue"] {font-family:'DM Mono',monospace;}
+.stButton>button {background:#1b1b19;color:#e5c65b;border:1px solid #6d5b25;border-radius:9px;font-weight:600;}
+.stButton>button:hover {border-color:#e5c65b;color:#fff2bd;}
+div[data-testid="stSelectbox"] label, div[data-testid="stRadio"] label {color:#aab3c2;}
+hr {border-color:#252c39;}
+.eyebrow {font:11px 'DM Mono',monospace;letter-spacing:.16em;color:#9aa4b5;text-transform:uppercase;}
+.brand {font-size:26px;font-weight:800;letter-spacing:-1.3px;color:#f0d77c;}
+.panel {background:linear-gradient(145deg,rgba(21,26,37,.96),rgba(13,17,25,.96));border:1px solid #252c39;border-radius:14px;padding:15px 18px;}
+.small {font:11px 'DM Mono',monospace;color:#8792a4;}
+@media(max-width:700px){.block-container{padding-left:1rem;padding-right:1rem}.brand{font-size:21px}}
 </style>
 """, unsafe_allow_html=True)
 
+def add_technicals(frame):
+    d = frame.copy().sort_values("time")
+    d["ema20"] = d.close.ewm(span=20, adjust=False).mean()
+    d["ema50"] = d.close.ewm(span=50, adjust=False).mean()
+    d["ema200"] = d.close.ewm(span=200, adjust=False).mean()
+    typical = (d.high + d.low + d.close) / 3
+    # Rolling VWAP approximation over the visible bar window; explicitly labelled.
+    d["vwap"] = (typical * d.volume).rolling(30, min_periods=1).sum() / d.volume.rolling(30, min_periods=1).sum().replace(0, np.nan)
+    mid = d.close.rolling(20).mean()
+    std = d.close.rolling(20).std()
+    d["bb_mid"], d["bb_upper"], d["bb_lower"] = mid, mid + 2*std, mid - 2*std
+    delta = d.close.diff()
+    gain = delta.clip(lower=0).ewm(alpha=1/14, adjust=False).mean()
+    loss = (-delta.clip(upper=0)).ewm(alpha=1/14, adjust=False).mean()
+    rs = gain / loss.replace(0, np.nan)
+    d["rsi"] = 100 - (100 / (1 + rs))
+    ema12 = d.close.ewm(span=12, adjust=False).mean()
+    ema26 = d.close.ewm(span=26, adjust=False).mean()
+    d["macd"] = ema12 - ema26
+    d["macd_signal"] = d.macd.ewm(span=9, adjust=False).mean()
+    d["macd_hist"] = d.macd - d.macd_signal
+    tr = pd.concat([d.high-d.low, (d.high-d.close.shift()).abs(), (d.low-d.close.shift()).abs()], axis=1).max(axis=1)
+    d["atr14"] = tr.rolling(14).mean()
+    return d
 
-# ====================== HELPERS ======================
-def metric_card(label: str, value: str, gold: bool = False):
-    gold_class = "gold" if gold else ""
-    st.markdown(f"""
-    <div class="glass">
-        <div class="metric-label">{label}</div>
-        <div class="metric-value {gold_class}">{value}</div>
-    </div>
-    """, unsafe_allow_html=True)
+@st.cache_data(ttl=45, show_spinner=False)
+def load_bars(symbol, timeframe, limit=250):
+    return get_bars(symbol, timeframe=timeframe, limit=limit)
 
+@st.cache_data(ttl=300, show_spinner=False)
+def correlation_data(symbols):
+    series = []
+    for sym in symbols:
+        bars = get_bars(sym, timeframe="1Day", limit=45)
+        if bars is None or bars.empty:
+            continue
+        s = bars.set_index(pd.to_datetime(bars.time))["close"].pct_change().rename(sym)
+        series.append(s)
+    if len(series) < 2:
+        return pd.DataFrame()
+    return pd.concat(series, axis=1, join="inner").dropna().corr()
 
-def signal_badge(signal: str) -> str:
-    if signal == "long":
-        return '<span class="badge badge-long">LONG</span>'
-    elif signal == "short":
-        return '<span class="badge badge-short">SHORT</span>'
-    return '<span class="badge badge-none">FLAT</span>'
+def money(value):
+    return f"${value:,.2f}" if pd.notna(value) else "—"
 
+# Header
+head_l, head_r = st.columns([2.2, 1])
+with head_l:
+    st.markdown('<div class="eyebrow">SYSTEMATIC RESEARCH / PAPER ENVIRONMENT</div><div class="brand">⚡ OROCHI <span style="color:#8c95a5;font-weight:500">TERMINAL</span></div>', unsafe_allow_html=True)
+with head_r:
+    st.markdown(f'<div style="text-align:right;padding-top:8px" class="small">LOCAL UI CLOCK · {datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")} UTC<br><span style="color:#e3c65e">● PAPER MODE · ORDER ROUTING DISABLED</span></div>', unsafe_allow_html=True)
 
-def regime_badge(regime: str) -> str:
-    if regime == "imbalanced":
-        return '<span class="badge badge-imbalanced">IMBALANCED</span>'
-    elif regime == "balanced":
-        return '<span class="badge badge-balanced">BALANCED</span>'
-    return '<span class="badge badge-none">—</span>'
-
-
-def has_keys() -> bool:
+st.divider()
+if not (os.getenv("ALPACA_API_KEY") and os.getenv("ALPACA_SECRET_KEY")):
     try:
-        from engine.data import _credentials
-        _credentials()
-        return True
+        _ = st.secrets["ALPACA_API_KEY"]
+        _ = st.secrets["ALPACA_SECRET_KEY"]
     except Exception:
-        return False
+        st.warning("Market data credentials are not configured in this deployment. Add Alpaca PAPER credentials in Streamlit Secrets to load your account and authenticated data.")
+        
+# Controls
+ctrl1, ctrl2, ctrl3 = st.columns([1.2, 1, 1])
+with ctrl1:
+    symbol = st.selectbox("INSTRUMENT", ALL_SYMBOLS, index=0)
+with ctrl2:
+    timeframe = st.selectbox("BAR INTERVAL", ["5Min", "15Min", "1Hour", "1Day"], index=1)
+with ctrl3:
+    if st.button("↻  REFRESH MARKET DATA", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
 
+with st.spinner(f"Loading {symbol} · {timeframe} bars from Alpaca…"):
+    raw = load_bars(symbol, timeframe, 250)
 
-def load_account_only():
-    """Fast path: only account + positions, no full scan."""
-    try:
-        from engine.data import get_account, get_positions
-        from engine.quant import portfolio_heat, check_daily_loss_limit
-        account = get_account()
-        heat = portfolio_heat()
-        allowed, daily_pnl = check_daily_loss_limit()
-        return {
-            "equity": float(account.equity),
-            "cash": float(account.cash),
-            "buying_power": float(account.buying_power),
-            "daily_pnl_pct": daily_pnl,
-            "allowed": allowed,
-            "heat": heat,
-        }
-    except Exception as e:
-        return {"error": str(e)}
+if raw is None or raw.empty:
+    st.error("No bars returned for this instrument/interval. Check credentials, market session, symbol support, and provider status. No synthetic data is substituted.")
+else:
+    d = add_technicals(raw)
+    last = d.iloc[-1]
+    prev = d.iloc[-2] if len(d) > 1 else last
+    change = (float(last.close) / float(prev.close) - 1) * 100 if float(prev.close) else 0
+    source = "ALPACA CRYPTO DATA" if "/" in symbol else "ALPACA IEX EQUITIES FEED · NOT SIP"
+    age = (datetime.now(timezone.utc) - pd.to_datetime(last.time).to_pydatetime()).total_seconds()/60
+    age_label = f"{age:.0f} min old" if age < 1440 else f"{age/60:.1f} hours old"
+    freshness = "LATEST AVAILABLE BAR" if age < (20 if timeframe in ("5Min","15Min") else 180) else "STALE / DELAYED BAR"
+    m1,m2,m3,m4,m5 = st.columns(5)
+    m1.metric("LAST CLOSE", money(last.close), f"{change:+.2f}%")
+    m2.metric("RSI · 14", f"{last.rsi:.1f}" if pd.notna(last.rsi) else "—")
+    m3.metric("ATR · 14", money(last.atr14))
+    m4.metric("EMA 20 / 50", f"{last.ema20:.2f} / {last.ema50:.2f}")
+    m5.metric("BAR AGE", age_label, freshness)
+    st.markdown(f'<div class="small" style="margin:4px 0 12px">SOURCE: {source} &nbsp;·&nbsp; LAST BAR: {pd.to_datetime(last.time).strftime("%Y-%m-%d %H:%M:%S %Z")} &nbsp;·&nbsp; {len(d)} BARS</div>', unsafe_allow_html=True)
 
+    fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=.035,
+                        row_heights=[.68,.16,.16], subplot_titles=("PRICE / STRUCTURE", "VOLUME", "RSI · MACD"))
+    fig.add_trace(go.Candlestick(x=d.time, open=d.open, high=d.high, low=d.low, close=d.close,
+                                 name=symbol, increasing_line_color=GREEN, decreasing_line_color=RED), row=1,col=1)
+    for col, label, color, width in [
+        ("ema20","EMA 20","#f2cc60",1.2),("ema50","EMA 50","#58a6ff",1.2),
+        ("ema200","EMA 200","#c792ea",1.2),("vwap","Rolling VWAP","#f08c46",1.1),
+        ("bb_upper","Bollinger Upper","#667085",.8),("bb_lower","Bollinger Lower","#667085",.8)]:
+        fig.add_trace(go.Scatter(x=d.time,y=d[col],name=label,line=dict(color=color,width=width),opacity=.9),row=1,col=1)
+    fig.add_trace(go.Bar(x=d.time,y=d.volume,name="Volume",marker_color=np.where(d.close>=d.open,GREEN,RED),opacity=.55),row=2,col=1)
+    fig.add_trace(go.Scatter(x=d.time,y=d.rsi,name="RSI",line=dict(color="#c792ea",width=1.3)),row=3,col=1)
+    fig.add_hline(y=70,line_dash="dot",line_color="#6b7280",row=3,col=1)
+    fig.add_hline(y=30,line_dash="dot",line_color="#6b7280",row=3,col=1)
+    fig.add_trace(go.Scatter(x=d.time,y=d.macd,name="MACD",line=dict(color="#58a6ff",width=1)),row=3,col=1)
+    fig.add_trace(go.Scatter(x=d.time,y=d.macd_signal,name="MACD Signal",line=dict(color="#f2cc60",width=1)),row=3,col=1)
+    fig.update_layout(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor=BG,
+                      height=760, margin=dict(l=8,r=8,t=45,b=8), xaxis_rangeslider_visible=False,
+                      legend=dict(orientation="h",y=1.03,x=0),font=dict(family="DM Mono",size=10,color="#aab3c2"),
+                      hovermode="x unified")
+    fig.update_yaxes(gridcolor="#222936",zerolinecolor="#222936")
+    fig.update_xaxes(gridcolor="#1b2230")
+    st.plotly_chart(fig, use_container_width=True, config={"displaylogo":False,"scrollZoom":True})
 
-# ====================== MAIN ======================
-def main():
-    # Header — always instant
-    st.markdown(f"""
-    <div class="terminal-header">
-        <div class="logo">⚡ OROCHI TERMINAL</div>
-        <div style="font-size:0.85rem; color:rgba(232,230,227,0.6);">
-            <span class="status-dot"></span> PAPER · ALPACA · {datetime.utcnow().strftime('%Y-%m-%d %H:%M')} UTC
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    # Quant diagnostics based only on retrieved bars
+    st.markdown("### QUANT DIAGNOSTICS")
+    q1,q2,q3,q4 = st.columns(4)
+    realized = d.close.pct_change().dropna().std() * np.sqrt(252 if timeframe=="1Day" else 78) * 100
+    q1.metric("REALIZED VOL · APPROX", f"{realized:.2f}%" if pd.notna(realized) else "—")
+    q2.metric("BOLLINGER WIDTH", f"{((last.bb_upper-last.bb_lower)/last.bb_mid*100):.2f}%" if pd.notna(last.bb_mid) and last.bb_mid else "—")
+    q3.metric("PRICE VS VWAP", f"{(last.close/last.vwap-1)*100:+.2f}%" if pd.notna(last.vwap) and last.vwap else "—")
+    trend = "BULL STACK" if last.close>last.ema20>last.ema50 else ("BEAR STACK" if last.close<last.ema20<last.ema50 else "MIXED")
+    q4.metric("EMA STRUCTURE", trend)
 
-    # Key check
-    if not has_keys():
-        st.markdown("""
-        <div class="glass-strong" style="text-align:center; padding:2.5rem;">
-            <div style="font-size:1.3rem; margin-bottom:0.8rem;">API Keys Required</div>
-            <div style="color:rgba(232,230,227,0.6); margin-bottom:1rem;">
-                Add your Alpaca <b>Paper</b> keys to Streamlit Secrets, then refresh.
-            </div>
-            <div style="font-family:'JetBrains Mono'; font-size:0.85rem; color:#D4AF37;">
-                ALPACA_API_KEY=...<br>ALPACA_SECRET_KEY=...
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-        st.stop()
+st.divider()
+st.markdown("### CROSS-ASSET CORRELATION")
+st.caption("Pearson correlation of overlapping daily close-to-close returns. Values are calculated from retrieved provider bars; unavailable pairs are not filled with estimates.")
+with st.spinner("Retrieving daily bars for correlation matrix…"):
+    corr = correlation_data(["SPY","QQQ","NVDA","TSLA","BTC/USD","ETH/USD"])
+if corr.empty:
+    st.info("Correlation matrix unavailable: insufficient overlapping daily observations from the data provider.")
+else:
+    heat = go.Figure(data=go.Heatmap(z=corr.values,x=corr.columns,y=corr.index,zmin=-1,zmax=1,
+                                    colorscale=[[0,"#e45b6b"],[.5,"#202938"],[1,"#39c99a"]],
+                                    text=np.round(corr.values,2),texttemplate="%{text:.2f}",
+                                    hovertemplate="%{y} × %{x}: %{z:.3f}<extra></extra>"))
+    heat.update_layout(template="plotly_dark",paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor=BG,
+                       height=420,margin=dict(l=8,r=8,t=10,b=8),font=dict(family="DM Mono",size=11,color="#aab3c2"))
+    st.plotly_chart(heat,use_container_width=True,config={"displaylogo":False})
 
-    # Controls
-    c1, c2, c3, _ = st.columns([1, 1, 1, 3])
-    with c1:
-        scan_btn = st.button("Run Full Scan", use_container_width=True)
-    with c2:
-        exec_btn = st.button("Scan + Execute", use_container_width=True)
-    with c3:
-        refresh_btn = st.button("Refresh Account", use_container_width=True)
+st.divider()
+st.markdown("### PAPER SCANNER")
+st.caption("Research scan only. Automated order execution is intentionally disabled in this dashboard draft.")
+if st.button("RUN FULL SCAN", type="primary"):
+    with st.spinner("Analyzing configured watchlist…"):
+        try:
+            from engine.strategy import run_daily_scan
+            results = run_daily_scan(execute=False)
+            st.session_state["orochi_scan_results"] = results
+            st.session_state["orochi_scan_time"] = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        except Exception as exc:
+            st.error(f"Scan failed: {exc}")
+results = st.session_state.get("orochi_scan_results", [])
+if results:
+    table = pd.DataFrame([{
+        "SYMBOL": x.get("symbol"), "SIGNAL": str(x.get("signal","")).upper(),
+        "CONFLUENCE": x.get("confluence"), "REGIME": x.get("htf",{}).get("regime"),
+        "BIAS": x.get("htf",{}).get("bias"), "NEWS SENTIMENT": x.get("sentiment")
+    } for x in results]).sort_values("CONFLUENCE",ascending=False)
+    st.dataframe(table,use_container_width=True,hide_index=True)
+    st.caption("Last scan: " + st.session_state.get("orochi_scan_time","unknown"))
 
-    # Fast account load only
-    acct = load_account_only()
-
-    if "error" in acct:
-        st.error(f"Account error: {acct['error']}")
-        st.info("Check ALPACA_API_KEY and ALPACA_SECRET_KEY in Streamlit Secrets. Use PAPER keys only.")
-        st.stop()
-
-    # Top metrics (instant)
-    m1, m2, m3, m4, m5 = st.columns(5)
-    with m1:
-        metric_card("Equity", f"${acct['equity']:,.2f}", gold=True)
-    with m2:
-        metric_card("Daily P&L", f"{acct['daily_pnl_pct']*100:+.2f}%")
-    with m3:
-        metric_card("Buying Power", f"${acct['buying_power']:,.0f}")
-    with m4:
-        metric_card("Open Positions", str(acct["heat"]["num_positions"]))
-    with m5:
-        metric_card("Portfolio Heat", f"{acct['heat']['heat_pct']*100:.1f}%")
-
-    st.markdown("<hr>", unsafe_allow_html=True)
-
-    left, right = st.columns([1.4, 1])
-
-    # ---- Right column: positions (fast) ----
-    with right:
-        st.markdown("### Active Positions")
-        positions = acct["heat"].get("positions", {})
-        if not positions:
-            st.markdown("""
-            <div class="glass" style="text-align:center; color:rgba(232,230,227,0.4); padding:1.5rem;">
-                No open positions
-            </div>
-            """, unsafe_allow_html=True)
-        else:
-            html = '<div class="glass-strong">'
-            for sym, pos in positions.items():
-                pl = pos["unrealized_pl"]
-                color = "#2ecc71" if pl >= 0 else "#e74c3c"
-                html += f"""
-                <div style="display:flex; justify-content:space-between; padding:0.65rem 0; border-bottom:1px solid rgba(255,255,255,0.05);">
-                    <div>
-                        <div style="font-weight:600; font-family:'JetBrains Mono';">{sym}</div>
-                        <div style="font-size:0.75rem; color:rgba(232,230,227,0.5);">{pos['side'].upper()} · {pos['qty']}</div>
-                    </div>
-                    <div style="text-align:right;">
-                        <div style="font-family:'JetBrains Mono'; color:{color};">${pl:+,.2f}</div>
-                        <div style="font-size:0.75rem; color:rgba(232,230,227,0.45);">${pos['market_value']:,.0f}</div>
-                    </div>
-                </div>
-                """
-            html += "</div>"
-            st.markdown(html, unsafe_allow_html=True)
-
-    # ---- Left column: scan results ----
-    with left:
-        st.markdown("### Market Scan")
-
-        if scan_btn or exec_btn:
-            with st.spinner("Scanning markets (Orochi + ICT + Quant)..."):
-                try:
-                    from engine.strategy import run_daily_scan
-                    results = run_daily_scan(execute=bool(exec_btn))
-                    st.session_state["scan_results"] = results
-                    st.session_state["last_scan"] = datetime.utcnow().isoformat()
-                except Exception as e:
-                    st.error(f"Scan failed: {e}")
-                    results = []
-        else:
-            results = st.session_state.get("scan_results", [])
-
-        if not results:
-            st.markdown("""
-            <div class="glass" style="text-align:center; padding:2rem; color:rgba(232,230,227,0.45);">
-                Click <b>Run Full Scan</b> to analyze QQQ, SPY, stocks & crypto<br>
-                <span style="font-size:0.8rem;">(Orochi regime · ICT FVG · Quant confluence)</span>
-            </div>
-            """, unsafe_allow_html=True)
-        else:
-            rows = ""
-            for item in sorted(results, key=lambda x: x["confluence"], reverse=True):
-                score = item["confluence"]
-                rows += f"""
-                <div style="display:flex; align-items:center; padding:0.7rem 0; border-bottom:1px solid rgba(255,255,255,0.04);">
-                    <div style="width:90px; font-weight:600; font-family:'JetBrains Mono';">{item['symbol']}</div>
-                    <div style="width:90px;">{signal_badge(item['signal'])}</div>
-                    <div style="width:110px;">{regime_badge(item.get('htf', {}).get('regime', '—'))}</div>
-                    <div style="width:80px; font-size:0.85rem; color:rgba(232,230,227,0.7);">{item.get('htf', {}).get('bias', '—')}</div>
-                    <div style="flex:1;">
-                        <div style="font-size:0.8rem; color:{ACCENT_COLOR}; font-family:'JetBrains Mono';">{score:.2f}</div>
-                        <div class="score-bar-bg"><div class="score-bar-fill" style="width:{int(score*100)}%"></div></div>
-                    </div>
-                    <div style="width:60px; text-align:right; font-size:0.8rem; color:rgba(232,230,227,0.5);">{item.get('sentiment', 0):+.2f}</div>
-                </div>
-                """
-
-            st.markdown(f"""
-            <div class="glass-strong">
-                <div style="display:flex; padding-bottom:0.5rem; font-size:0.7rem; text-transform:uppercase; letter-spacing:0.06em; color:rgba(232,230,227,0.4);">
-                    <div style="width:90px;">Symbol</div>
-                    <div style="width:90px;">Signal</div>
-                    <div style="width:110px;">Regime</div>
-                    <div style="width:80px;">Bias</div>
-                    <div style="flex:1;">Confluence</div>
-                    <div style="width:60px; text-align:right;">News</div>
-                </div>
-                {rows}
-            </div>
-            """, unsafe_allow_html=True)
-
-            # Top ideas
-            tops = [r for r in results if r["signal"] != "none"][:5]
-            if tops:
-                st.markdown("#### Top Ideas")
-                for t in tops:
-                    st.markdown(f"""
-                    <div class="glass" style="padding:0.8rem 1.2rem;">
-                        <div style="display:flex; justify-content:space-between; align-items:center;">
-                            <span style="font-weight:600; font-family:'JetBrains Mono';">{t['symbol']}</span>
-                            {signal_badge(t['signal'])}
-                        </div>
-                        <div style="font-size:0.78rem; color:rgba(232,230,227,0.5); margin-top:0.3rem;">{t.get('reason', '')[:80]}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-    # Footer
-    st.markdown("""
-    <div style="margin-top:2rem; padding-top:1rem; border-top:1px solid rgba(212,175,55,0.1);
-                font-size:0.75rem; color:rgba(232,230,227,0.3); text-align:center;">
-        Orochi Framework · ICT FVG · Quant Risk · Paper Trading only · Not financial advice
-    </div>
-    """, unsafe_allow_html=True)
-
-
-if __name__ == "__main__":
-    main()
+st.markdown('<div class="small" style="text-align:center;padding:24px 0 8px">OROCHI RESEARCH TERMINAL · REAL PROVIDER DATA ONLY · PAPER MODE · NO ORDER EXECUTION</div>',unsafe_allow_html=True)
