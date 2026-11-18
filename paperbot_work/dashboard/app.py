@@ -10,9 +10,11 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 import streamlit as st
 from datetime import datetime
-from dotenv import load_dotenv
-
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 from engine.config import ACCENT_COLOR, ALL_SYMBOLS
 
@@ -226,9 +228,12 @@ def regime_badge(regime: str) -> str:
 
 
 def has_keys() -> bool:
-    key = os.getenv("ALPACA_API_KEY", "")
-    secret = os.getenv("ALPACA_SECRET_KEY", "")
-    return bool(key and secret and "your_paper" not in key and "your_paper" not in secret)
+    try:
+        from engine.data import _credentials
+        _credentials()
+        return True
+    except Exception:
+        return False
 
 
 def load_account_only():
@@ -269,7 +274,7 @@ def main():
         <div class="glass-strong" style="text-align:center; padding:2.5rem;">
             <div style="font-size:1.3rem; margin-bottom:0.8rem;">API Keys Required</div>
             <div style="color:rgba(232,230,227,0.6); margin-bottom:1rem;">
-                Add your Alpaca <b>Paper</b> keys to the <code>.env</code> file, then refresh.
+                Add your Alpaca <b>Paper</b> keys to Streamlit Secrets, then refresh.
             </div>
             <div style="font-family:'JetBrains Mono'; font-size:0.85rem; color:#D4AF37;">
                 ALPACA_API_KEY=...<br>ALPACA_SECRET_KEY=...
@@ -292,7 +297,7 @@ def main():
 
     if "error" in acct:
         st.error(f"Account error: {acct['error']}")
-        st.info("Check your paper API keys in `.env`")
+        st.info("Check ALPACA_API_KEY and ALPACA_SECRET_KEY in Streamlit Secrets. Use PAPER keys only.")
         st.stop()
 
     # Top metrics (instant)
