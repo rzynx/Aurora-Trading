@@ -86,7 +86,8 @@ def correlation_data(symbols):
         bars = get_bars(sym, timeframe="1Day", limit=45)
         if bars is None or bars.empty:
             continue
-        s = bars.set_index(pd.to_datetime(bars.time))["close"].pct_change().rename(sym)
+        dates = pd.to_datetime(bars.time, utc=True).dt.floor("D")
+        s = pd.Series(bars.close.to_numpy(), index=dates, name=sym).groupby(level=0).last().pct_change()
         series.append(s)
     if len(series) < 2:
         return pd.DataFrame()
