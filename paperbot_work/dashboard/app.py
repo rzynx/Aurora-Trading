@@ -15,7 +15,7 @@ from plotly.subplots import make_subplots
 import streamlit as st
 
 from engine.config import ACCENT_COLOR, ALL_SYMBOLS
-from engine.data import get_bars
+from engine.data import get_bars, get_account, get_positions
 
 st.set_page_config(page_title="Orochi | Quant Terminal", page_icon="⚡", layout="wide",
                    initial_sidebar_state="collapsed")
@@ -66,6 +66,10 @@ def add_technicals(frame):
     loss = (-delta.clip(upper=0)).ewm(alpha=1/14, adjust=False).mean()
     rs = gain / loss.replace(0, np.nan)
     d["rsi"] = 100 - (100 / (1 + rs))
+    # Handle monotonic runs explicitly: all gains => 100, all losses => 0.
+    d.loc[(loss == 0) & (gain > 0), "rsi"] = 100.0
+    d.loc[(gain == 0) & (loss > 0), "rsi"] = 0.0
+    d.loc[(gain == 0) & (loss == 0), "rsi"] = 50.0
     ema12 = d.close.ewm(span=12, adjust=False).mean()
     ema26 = d.close.ewm(span=26, adjust=False).mean()
     d["macd"] = ema12 - ema26
@@ -78,6 +82,27 @@ def add_technicals(frame):
 @st.cache_data(ttl=45, show_spinner=False)
 def load_bars(symbol, timeframe, limit=250):
     return get_bars(symbol, timeframe=timeframe, limit=limit)
+
+@st.cache_data(ttl=30, show_spinner=False)
+def paper_account_snapshot():
+    """Read-only snapshot from the configured Alpaca paper account."""
+    account = get_account()
+    positions = get_positions()
+    summary = {
+        "equity": float(account.equity),
+        "cash": float(account.cash),
+        "buying_power": float(account.buying_power),
+        "last_equity": float(account.last_equity),
+    }
+    rows = [{
+        "SYMBOL": symbol,
+        "QTY": float(position.qty),
+        "MARKET VALUE": float(position.market_value),
+        "UNREALIZED P/L": float(position.unrealized_pl),
+        "SIDE": "LONG" if float(position.qty) > 0 else "SHORT",
+    } for symbol, position in positions.items()]
+    return summary, pd.DataFrame(rows)
+
 
 @st.cache_data(ttl=300, show_spinner=False)
 def correlation_data(symbols):
@@ -104,6 +129,22 @@ with head_r:
     st.markdown(f'<div style="text-align:right;padding-top:8px" class="small">LOCAL UI CLOCK · {datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")} UTC<br><span style="color:#e3c65e">● PAPER MODE · ORDER ROUTING DISABLED</span></div>', unsafe_allow_html=True)
 
 st.divider()
+try:
+    account, positions = paper_account_snapshot()
+    daily_pct = ((account["equity"] / account["last_equity"]) - 1) * 100 if account["last_equity"] else 0.0
+    st.markdown("### PAPER ACCOUNT")
+    a1, a2, a3, a4 = st.columns(4)
+    a1.metric("PAPER EQUITY", money(account["equity"]), f"{daily_pct:+.2f}% today")
+    a2.metric("CASH", money(account["cash"]))
+    a3.metric("BUYING POWER", money(account["buying_power"]))
+    a4.metric("OPEN POSITIONS", str(len(positions)))
+    if not positions.empty:
+        st.dataframe(positions, use_container_width=True, hide_index=True)
+    else:
+        st.caption("No open paper positions.")
+except Exception as exc:
+    st.info(f"Paper account snapshot unavailable: {exc}")
+
 if not (os.getenv("ALPACA_API_KEY") and os.getenv("ALPACA_SECRET_KEY")):
     try:
         _ = st.secrets["ALPACA_API_KEY"]
@@ -170,9 +211,15 @@ else:
     # Quant diagnostics based only on retrieved bars
     st.markdown("### QUANT DIAGNOSTICS")
     q1,q2,q3,q4 = st.columns(4)
-    bars_per_day = {"5Min": 78, "15Min": 26, "1Hour": 6.5, "1Day": 1}[timeframe]
-    realized = d.close.pct_change().dropna().std() * np.sqrt(252 * bars_per_day) * 100
-    q1.metric("REALIZED VOL · APPROX", f"{realized:.2f}%" if pd.notna(realized) else "—")
+    is_crypto = "/" in symbol
+    bars_per_day = (
+        {"5Min": 288, "15Min": 96, "1Hour": 24, "1Day": 1}[timeframe]
+        if is_crypto else
+        {"5Min": 78, "15Min": 26, "1Hour": 6.5, "1Day": 1}[timeframe]
+    )
+    annual_sessions = 365 if is_crypto else 252
+    realized = d.close.pct_change().dropna().std() * np.sqrt(annual_sessions * bars_per_day) * 100
+    q1.metric("REALIZED VOL · ANNUALIZED EST.", f"{realized:.2f}%" if pd.notna(realized) else "—")
     q2.metric("BOLLINGER WIDTH", f"{((last.bb_upper-last.bb_lower)/last.bb_mid*100):.2f}%" if pd.notna(last.bb_mid) and last.bb_mid else "—")
     q3.metric("PRICE VS VWAP", f"{(last.close/last.vwap-1)*100:+.2f}%" if pd.notna(last.vwap) and last.vwap else "—")
     trend = "BULL STACK" if last.close>last.ema20>last.ema50 else ("BEAR STACK" if last.close<last.ema20<last.ema50 else "MIXED")
