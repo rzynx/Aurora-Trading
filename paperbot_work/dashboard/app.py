@@ -116,6 +116,41 @@ def get_equity_history():
         return None
 
 
+
+def load_quant_returns():
+    """Build aligned daily return series from real Alpaca bars."""
+    frames, missing = {}, []
+    for symbol in ALL_SYMBOLS:
+        bars = get_bars(symbol, "1Day", limit=90)
+        if bars is None or bars.empty or len(bars) < 8:
+            missing.append(symbol)
+            continue
+        idx = pd.to_datetime(bars["time"], utc=True)
+        series = pd.Series(bars["close"].astype(float).values, index=idx).sort_index()
+        frames[symbol] = series.pct_change()
+    if not frames:
+        return pd.DataFrame(), missing
+    returns = pd.concat(frames, axis=1).sort_index().tail(60)
+    return returns.dropna(axis=1, thresh=8), missing
+
+
+def quant_heatmap(matrix, title, zmin=-1, zmax=1):
+    fig = go.Figure(go.Heatmap(
+        z=matrix.values, x=list(matrix.columns), y=list(matrix.index),
+        zmin=zmin, zmax=zmax, zmid=0, colorscale="RdBu",
+        text=[[f"{v:.2f}" if pd.notna(v) else "—" for v in row] for row in matrix.values],
+        texttemplate="%{text}", textfont={"size": 10},
+        colorbar={"tickfont": {"color": MUTED}, "thickness": 10},
+        hovertemplate="%{y} × %{x}<br>%{z:.3f}<extra></extra>",
+    ))
+    fig.update_layout(title={"text": title, "font": {"size": 12, "color": TEXT}},
+        height=max(350, 38 * len(matrix.index) + 100), paper_bgcolor=PANEL,
+        plot_bgcolor=PANEL, font={"family": "IBM Plex Mono, monospace", "color": MUTED, "size": 10},
+        margin={"l": 15, "r": 15, "t": 48, "b": 20}, xaxis={"side": "bottom", "tickangle": -35},
+        yaxis={"autorange": "reversed"})
+    return fig
+
+
 def safe_account_snapshot():
     account = get_account()
     positions = get_positions()
@@ -181,7 +216,7 @@ def main():
     if str(getattr(account, "status", "")).lower() != "active" or bool(getattr(account, "trading_blocked", False)):
         st.error("BROKER ACCOUNT STATUS REQUIRES ATTENTION — check Alpaca paper account.")
 
-    tabs = st.tabs(["DESK OVERVIEW", "MARKET ANALYTICS", "POSITIONS", "RISK & CONTROLS"])
+    tabs = st.tabs(["DESK OVERVIEW", "MARKET ANALYTICS", "QUANT LAB", "POSITIONS", "RISK & CONTROLS"])
     with tabs[0]:
         left, right = st.columns([1.7, 1])
         with left:
@@ -258,8 +293,63 @@ def main():
             st.warning("No market bars returned for this instrument/timeframe.")
         st.caption("Market data is supplied by Alpaca. Stock feed availability depends on your account/data entitlement.")
 
+
     with tabs[2]:
-        st.markdown('<div class="panel-title">06 / OPEN BOOK · LIVE BROKER POSITIONS</div>', unsafe_allow_html=True)
+        st.markdown('<div class="panel-title">06 / CROSS-ASSET QUANT RESEARCH</div>', unsafe_allow_html=True)
+        st.caption("Calculated from historical Alpaca daily bars. Descriptive analytics, not forecasts.")
+        with st.spinner("Loading daily history and calculating cross-asset statistics..."):
+            returns, missing_symbols = load_quant_returns()
+        if returns.empty or returns.shape[1] < 2:
+            st.warning("Not enough overlapping market history to calculate cross-asset matrices.")
+        else:
+            corr = returns.corr(min_periods=8)
+            st.markdown('<div class="panel-title">06A / PEARSON RETURN CORRELATION</div>', unsafe_allow_html=True)
+            st.plotly_chart(quant_heatmap(corr, "DAILY RETURN CORRELATION"), use_container_width=True, config={"displayModeBar": False})
+            st.caption("−1 = move oppositely · 0 = weak linear relationship · +1 = move together.")
+
+            st.markdown('<div class="panel-title">06B / REALIZED VOLATILITY HEATMAP</div>', unsafe_allow_html=True)
+            vol = pd.DataFrame({f"{w}D": returns.tail(w).std() * (252 ** 0.5) * 100 for w in (5, 10, 20)}).T
+            vf = go.Figure(go.Heatmap(z=vol.values, x=list(vol.columns), y=list(vol.index),
+                colorscale="Turbo", text=[[f"{v:.1f}%" if pd.notna(v) else "—" for v in row] for row in vol.values],
+                texttemplate="%{text}", textfont={"size": 11}, colorbar={"title": "Ann. %"},
+                hovertemplate="%{y} realized vol<br>%{x}: %{z:.2f}%<extra></extra>"))
+            vf.update_layout(height=250, paper_bgcolor=PANEL, plot_bgcolor=PANEL,
+                font={"family":"IBM Plex Mono, monospace","color":MUTED,"size":10}, margin={"l":15,"r":15,"t":20,"b":15})
+            st.plotly_chart(vf, use_container_width=True, config={"displayModeBar": False})
+            st.caption("Annualized standard deviation of daily returns; short windows are noisy.")
+
+            st.markdown('<div class="panel-title">06C / MOMENTUM MATRIX</div>', unsafe_allow_html=True)
+            momentum = pd.DataFrame({
+                "1D": returns.tail(1).sum() * 100,
+                "5D": ((1 + returns.tail(5)).prod() - 1) * 100,
+                "20D": ((1 + returns.tail(20)).prod() - 1) * 100,
+            }).T
+            mf = go.Figure(go.Heatmap(z=momentum.values, x=list(momentum.columns), y=list(momentum.index),
+                zmid=0, colorscale="RdYlGn",
+                text=[[f"{v:+.2f}%" if pd.notna(v) else "—" for v in row] for row in momentum.values],
+                texttemplate="%{text}", textfont={"size":11}, colorbar={"title":"Return %"},
+                hovertemplate="%{y} return<br>%{x}: %{z:.2f}%<extra></extra>"))
+            mf.update_layout(height=240, paper_bgcolor=PANEL, plot_bgcolor=PANEL,
+                font={"family":"IBM Plex Mono, monospace","color":MUTED,"size":10}, margin={"l":15,"r":15,"t":20,"b":15})
+            st.plotly_chart(mf, use_container_width=True, config={"displayModeBar": False})
+
+            st.markdown('<div class="panel-title">06D / RETURN & DRAWDOWN STATISTICS</div>', unsafe_allow_html=True)
+            wealth = (1 + returns.tail(20).fillna(0)).cumprod()
+            drawdown = (wealth / wealth.cummax() - 1).min() * 100
+            stats = pd.DataFrame({
+                "OBSERVATIONS": returns.count(),
+                "MEAN DAILY RETURN %": returns.mean() * 100,
+                "DAILY VOL %": returns.std() * 100,
+                "WORST DAY %": returns.min() * 100,
+                "BEST DAY %": returns.max() * 100,
+                "20D MAX DRAWDOWN %": drawdown,
+            }).round(3).reset_index(names="SYMBOL")
+            st.dataframe(stats, use_container_width=True, hide_index=True)
+            if missing_symbols:
+                st.caption("Insufficient history / unavailable symbols: " + ", ".join(missing_symbols))
+
+    with tabs[3]:
+        st.markdown('<div class="panel-title">07 / OPEN BOOK · LIVE BROKER POSITIONS</div>', unsafe_allow_html=True)
         if positions:
             rows = []
             for symbol, p in positions.items():
@@ -278,8 +368,8 @@ def main():
             st.info("No open positions in the paper account.")
         st.caption("Positions are read directly from the Alpaca paper account. This panel does not submit orders.")
 
-    with tabs[3]:
-        st.markdown('<div class="panel-title">07 / RISK ENGINE TELEMETRY</div>', unsafe_allow_html=True)
+    with tabs[4]:
+        st.markdown('<div class="panel-title">08 / RISK ENGINE TELEMETRY</div>', unsafe_allow_html=True)
         r1, r2, r3 = st.columns(3)
         r1.metric("Daily loss breaker", "ARMED" if allowed else "TRIPPED", f"{day_pct:+.2f}% day")
         r2.metric("Gross exposure", f"{heat['heat_pct']*100:.2f}%", "target ceiling 75%")
