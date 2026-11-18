@@ -2,16 +2,32 @@
 import os
 from datetime import datetime, timedelta, timezone
 import pandas as pd
-from dotenv import load_dotenv
-
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    # Streamlit Cloud supplies credentials through st.secrets; dotenv is optional.
+    pass
 
 
 def _credentials():
-    key = os.getenv('ALPACA_API_KEY', '').strip()
-    secret = os.getenv('ALPACA_SECRET_KEY', '').strip()
+    """Read paper credentials from Streamlit Secrets first, then local environment."""
+    key = secret = ''
+    try:
+        import streamlit as st
+        key = str(st.secrets.get('ALPACA_API_KEY', '')).strip()
+        secret = str(st.secrets.get('ALPACA_SECRET_KEY', '')).strip()
+    except Exception:
+        # Streamlit may be unavailable or secrets.toml may not exist in local scripts.
+        pass
+
+    key = key or os.getenv('ALPACA_API_KEY', '').strip()
+    secret = secret or os.getenv('ALPACA_SECRET_KEY', '').strip()
     if not key or not secret or key.startswith('your_') or secret.startswith('your_'):
-        raise RuntimeError('Missing valid ALPACA_API_KEY / ALPACA_SECRET_KEY in .env (use PAPER keys).')
+        raise RuntimeError(
+            'Missing Alpaca PAPER credentials. Add ALPACA_API_KEY and '
+            'ALPACA_SECRET_KEY to Streamlit Secrets or your local .env file.'
+        )
     return key, secret
 
 
