@@ -117,6 +117,7 @@ def get_equity_history():
 
 
 
+@st.cache_data(ttl=300)
 def load_quant_returns():
     """Build aligned daily return series from real Alpaca bars."""
     frames, missing = {}, []
