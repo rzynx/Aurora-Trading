@@ -1,0 +1,37 @@
+name: Orochi Paper Auto Trader
+
+on:
+  schedule:
+    # Weekdays; the Python worker enforces 9:45 AM–3:00 PM New York time.
+    - cron: "*/5 13-20 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: orochi-paper-auto-trader
+  cancel-in-progress: false
+
+jobs:
+  paper-auto-trade:
+    if: ${{ vars.OROCHI_AUTO_TRADE == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      OROCHI_AUTO_TRADE: "true"
+      ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+      ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: paperbot_work/requirements.txt
+      - name: Install dependencies
+        run: python -m pip install -r paperbot_work/requirements.txt
+      - name: Run one paper-trading cycle
+        run: python paperbot_work/auto_trader.py --once
