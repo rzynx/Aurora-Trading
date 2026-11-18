@@ -17,10 +17,10 @@ CRYPTO_SYMBOLS = [
 ALL_SYMBOLS = CORE_SYMBOLS + STOCK_WATCHLIST + CRYPTO_SYMBOLS
 
 # ============== RISK ==============
-RISK_PER_TRADE = 0.015          # 1.5%
-MAX_OPEN_POSITIONS = 8
-DAILY_LOSS_LIMIT = 0.04         # 4% daily circuit breaker
-MAX_POSITION_PCT = 0.25         # Max 25% of equity in one name
+RISK_PER_TRADE = 0.005          # 0.5% per trade (conservative paper default)
+MAX_OPEN_POSITIONS = 3
+DAILY_LOSS_LIMIT = 0.02         # 2% daily circuit breaker
+MAX_POSITION_PCT = 0.10         # Max 10% of equity in one name
 
 # ============== TIMEFRAMES ==============
 # Primary analysis timeframes
