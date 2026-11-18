@@ -170,7 +170,8 @@ else:
     # Quant diagnostics based only on retrieved bars
     st.markdown("### QUANT DIAGNOSTICS")
     q1,q2,q3,q4 = st.columns(4)
-    realized = d.close.pct_change().dropna().std() * np.sqrt(252 if timeframe=="1Day" else 78) * 100
+    bars_per_day = {"5Min": 78, "15Min": 26, "1Hour": 6.5, "1Day": 1}[timeframe]
+    realized = d.close.pct_change().dropna().std() * np.sqrt(252 * bars_per_day) * 100
     q1.metric("REALIZED VOL · APPROX", f"{realized:.2f}%" if pd.notna(realized) else "—")
     q2.metric("BOLLINGER WIDTH", f"{((last.bb_upper-last.bb_lower)/last.bb_mid*100):.2f}%" if pd.notna(last.bb_mid) and last.bb_mid else "—")
     q3.metric("PRICE VS VWAP", f"{(last.close/last.vwap-1)*100:+.2f}%" if pd.notna(last.vwap) and last.vwap else "—")
