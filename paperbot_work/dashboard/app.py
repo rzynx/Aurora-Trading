@@ -876,7 +876,7 @@ def main():
     else:
         st.success("BROKER ACCOUNT HEALTHY · ACTIVE · TRADING UNBLOCKED")
 
-    tabs = st.tabs(["DESK OVERVIEW", "MARKET ANALYTICS", "QUANT LAB / HEATMAPS", "MARKET FLOOR", "POSITIONS", "RISK & CONTROLS", "CRYPTO / KALSHI PREDICTIONS", "SWING & INVESTING", "PORTFOLIO", "OPTIONS / LIQUIDITY 3D"])
+    tabs = st.tabs(["DESK OVERVIEW", "MARKET ANALYTICS", "QUANT LAB / HEATMAPS", "OPTIONS / LIQUIDITY 3D", "MARKET FLOOR", "POSITIONS", "RISK & CONTROLS", "CRYPTO / KALSHI PREDICTIONS", "SWING & INVESTING", "PORTFOLIO"])
     with tabs[0]:
         @st.fragment(run_every="30s")
         def trade_intelligence_fragment():
@@ -1038,13 +1038,13 @@ def main():
             if missing_symbols:
                 st.caption("Insufficient history / unavailable symbols: " + ", ".join(missing_symbols))
 
-    with tabs[3]:
+    with tabs[4]:
         @st.fragment(run_every="30s")
         def market_floor_fragment():
             render_market_floor()
         market_floor_fragment()
 
-    with tabs[4]:
+    with tabs[5]:
         st.markdown('<div class="panel-title">07 / OPEN BOOK · LIVE BROKER POSITIONS</div>', unsafe_allow_html=True)
         if positions:
             rows = []
@@ -1064,13 +1064,13 @@ def main():
             st.info("No open positions in the paper account.")
         st.caption("Positions are read directly from the Alpaca paper account. This panel does not submit orders.")
 
-    with tabs[6]:
+    with tabs[7]:
         @st.fragment(run_every="30s")
         def crypto_kalshi_fragment():
             render_crypto_kalshi_tracker()
         crypto_kalshi_fragment()
 
-    with tabs[5]:
+    with tabs[6]:
         st.markdown('<div class="panel-title">08 / RISK ENGINE TELEMETRY</div>', unsafe_allow_html=True)
         r1, r2, r3 = st.columns(3)
         r1.metric("Daily risk lock", "ARMED" if allowed else "TRIPPED", f"{fmt_money(day_change)} session P&L")
@@ -1088,10 +1088,10 @@ def main():
         st.dataframe(pd.DataFrame(risk_rows), use_container_width=True, hide_index=True)
         st.warning("Important: the current automated exit monitor checks positions periodically; it is not a guaranteed broker-hosted stop-loss. Do not treat this paper system as production-ready or connect live funds.")
 
-    with tabs[8]:
+    with tabs[9]:
         render_portfolio_workspace(account, positions)
 
-    with tabs[7]:
+    with tabs[8]:
         st.markdown('<div class="panel-title">10 / AURORA RESEARCH DOCTRINE · SWING TRADING & INVESTING</div>', unsafe_allow_html=True)
         st.caption("Educational decision framework. These principles do not generate orders or personalized investment recommendations.")
         left, right = st.columns(2)
@@ -1114,7 +1114,7 @@ def main():
         st.info("Portfolio separation: swing trades and long-term investments must have separate theses, time horizons, risk budgets, and exit rules. This playbook is educational only; the existing automated execution strategy has not been changed.")
 
 
-    with tabs[9]:
+    with tabs[3]:
         st.markdown('<div class="panel-title">11 / OPTIONS MICROSTRUCTURE · 3D SURFACES</div>', unsafe_allow_html=True)
         st.caption("Option-chain research from Alpaca. This tab is analytics only and never places orders.")
         option_symbol = st.selectbox("Underlying", ["SPY", "QQQ", "AAPL", "NVDA", "TSLA", "MSFT", "AMZN", "META"], key="aurora_options_underlying")
