@@ -591,7 +591,8 @@ def main():
         st.divider()
         st.markdown("**SYSTEM GUARDRAILS**")
         st.caption("Paper endpoint enforced in engine")
-        st.caption("Daily loss breaker · 2%")
+        st.caption("Daily loss lock · −$1,100")
+        st.caption("Daily profit stop · +$1,100,000")
         st.caption("Max concurrent positions · 3")
         st.caption("Risk budget · 0.5% / trade")
         if st.button("↻ REFRESH DATA", use_container_width=True):
@@ -625,8 +626,11 @@ def main():
     m[4].metric("Open positions", str(len(positions)), f"of 3 max")
     m[5].metric("Gross exposure", f"{heat['heat_pct']*100:.1f}%", "portfolio heat")
 
+    daily_lock_reason = ("DAILY LOSS LOCK · −$1,100 reached" if day_change <= -1100 else
+                         "DAILY PROFIT TARGET · +$1,100,000 reached" if day_change >= 1100000 else
+                         "RISK CHECK UNAVAILABLE" if not allowed else "")
     if not allowed:
-        st.warning("RISK LOCK ACTIVE — daily loss threshold reached or risk verification failed. New entries are blocked.")
+        st.warning(f"DAILY RISK LOCK ACTIVE — {daily_lock_reason or 'risk verification failed'}. New entries are blocked; exit management remains available.")
     raw_status = getattr(account, "status", "unknown")
     broker_status = str(getattr(raw_status, "value", raw_status)).split(".")[-1].strip().lower()
     trading_blocked = bool(getattr(account, "trading_blocked", False))
@@ -638,6 +642,20 @@ def main():
 
     tabs = st.tabs(["DESK OVERVIEW", "MARKET ANALYTICS", "QUANT LAB / HEATMAPS", "MARKET FLOOR", "POSITIONS", "RISK & CONTROLS", "CRYPTO / KALSHI PREDICTIONS"])
     with tabs[0]:
+        st.markdown('<div class="panel-title">SESSION P&L CONTROL · DAILY HARD LIMITS</div>', unsafe_allow_html=True)
+        p1, p2, p3 = st.columns(3)
+        p1.metric("SESSION P&L", fmt_money(day_change), f"{day_pct:+.2f}% vs prior close")
+        p2.metric("PROFIT STOP", "$1,100,000", "new entries lock at target")
+        p3.metric("MAX DAILY LOSS", "−$1,100", "new entries lock at floor")
+        if day_change >= 0:
+            target_progress = min(day_change / 1100000.0, 1.0)
+            st.progress(target_progress, text=f"Profit target progress · {target_progress*100:.4f}%")
+        else:
+            loss_progress = min(abs(day_change) / 1100.0, 1.0)
+            st.progress(loss_progress, text=f"Daily loss-limit usage · {loss_progress*100:.1f}%")
+        if not allowed:
+            st.error(daily_lock_reason or "Risk verification unavailable — execution locked.")
+
         @st.fragment(run_every="30s")
         def live_tracker_fragment():
             render_live_tracker()
@@ -814,12 +832,13 @@ def main():
     with tabs[5]:
         st.markdown('<div class="panel-title">08 / RISK ENGINE TELEMETRY</div>', unsafe_allow_html=True)
         r1, r2, r3 = st.columns(3)
-        r1.metric("Daily loss breaker", "ARMED" if allowed else "TRIPPED", f"{day_pct:+.2f}% day")
+        r1.metric("Daily risk lock", "ARMED" if allowed else "TRIPPED", f"{fmt_money(day_change)} session P&L")
         r2.metric("Gross exposure", f"{heat['heat_pct']*100:.2f}%", "target ceiling 75%")
         r3.metric("Risk per trade", "0.50%", "configured budget")
         risk_rows = [
             {"CONTROL": "Paper-only broker client", "STATE": "ENFORCED"},
-            {"CONTROL": "Daily loss threshold", "STATE": "2.00%"},
+            {"CONTROL": "Daily loss hard lock", "STATE": "−$1,100"},
+            {"CONTROL": "Daily profit stop", "STATE": "+$1,100,000"},
             {"CONTROL": "Maximum concurrent positions", "STATE": "3"},
             {"CONTROL": "Maximum position allocation", "STATE": "10.00%"},
             {"CONTROL": "Short entries", "STATE": "DISABLED"},
