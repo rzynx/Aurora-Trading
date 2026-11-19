@@ -378,20 +378,63 @@ def load_market_floor_candles(symbol):
     return bars.copy()
 
 
-def smooth_surface_grid(grid, strike_points=100, dte_points=60):
-    """Densify a sparse option surface by linear interpolation; retain observed nodes."""
+def smooth_surface_grid(grid, strike_points=140, dte_points=80, value_transform=None, sigma=1.15):
+    """Build a smooth 2D interpolated surface without drawing across unsupported regions.
+
+    Observations are scattered/interpolated in normalized strike-DTE space. A
+    normalized Gaussian filter softens triangulation facets; cells outside the
+    convex hull remain NaN so Plotly cannot draw misleading cross-shaped bridges.
+    """
+    from scipy.interpolate import griddata
+    from scipy.ndimage import gaussian_filter
+
     grid = grid.copy().apply(pd.to_numeric, errors="coerce")
     grid = grid.sort_index().sort_index(axis=1)
     grid = grid.loc[~grid.index.duplicated(keep="last"), ~grid.columns.duplicated(keep="last")]
-    if grid.empty or len(grid.index) < 2 or len(grid.columns) < 2:
+    if grid.empty:
         return grid
-    dense_dte = np.linspace(float(grid.index.min()), float(grid.index.max()), min(dte_points, max(2, len(grid.index) * 5)))
-    dense_strikes = np.linspace(float(grid.columns.min()), float(grid.columns.max()), min(strike_points, max(2, len(grid.columns) * 5)))
-    dense = grid.reindex(index=sorted(set(grid.index.astype(float).tolist() + dense_dte.tolist())),
-                         columns=sorted(set(grid.columns.astype(float).tolist() + dense_strikes.tolist())))
-    dense = dense.interpolate(method="index", axis=1, limit_area="inside")
-    dense = dense.interpolate(method="index", axis=0, limit_area="inside")
-    return dense.reindex(index=dense_dte, columns=dense_strikes)
+
+    observed = grid.to_numpy(dtype=float)
+    valid = np.isfinite(observed)
+    if int(valid.sum()) < 3:
+        return grid
+
+    strikes = grid.columns.to_numpy(dtype=float)
+    dtes = grid.index.to_numpy(dtype=float)
+    strike_span = max(float(np.ptp(strikes)), 1e-9)
+    dte_span = max(float(np.ptp(dtes)), 1e-9)
+    dense_strikes = np.unique(np.concatenate([
+        np.linspace(float(strikes.min()), float(strikes.max()), strike_points), strikes
+    ]))
+    dense_dtes = np.unique(np.concatenate([
+        np.linspace(float(dtes.min()), float(dtes.max()), dte_points), dtes
+    ]))
+
+    source_x, source_y = np.meshgrid(strikes, dtes)
+    points = np.column_stack([
+        source_x[valid] / strike_span,
+        source_y[valid] / dte_span,
+    ])
+    values = observed[valid]
+    if value_transform == "log1p":
+        values = np.log1p(np.clip(values, 0, None))
+
+    target_x, target_y = np.meshgrid(dense_strikes, dense_dtes)
+    interpolated = griddata(
+        points, values,
+        (target_x / strike_span, target_y / dte_span),
+        method="linear",
+    )
+    finite = np.isfinite(interpolated)
+    if finite.any() and sigma > 0:
+        weights = gaussian_filter(finite.astype(float), sigma=sigma, mode="nearest")
+        totals = gaussian_filter(np.nan_to_num(interpolated, nan=0.0), sigma=sigma, mode="nearest")
+        smoothed = np.divide(totals, weights, out=np.full_like(totals, np.nan), where=weights > 1e-8)
+        interpolated[finite] = smoothed[finite]
+
+    if value_transform == "log1p":
+        interpolated[finite] = np.expm1(interpolated[finite])
+    return pd.DataFrame(interpolated, index=dense_dtes, columns=dense_strikes)
 
 def render_market_floor_ticker():
     """One-second polled latest-trade ticker; direction is relative to the prior poll."""
@@ -1218,7 +1261,7 @@ def main():
                     iv_grid = smooth_surface_grid(options.pivot_table(index="dte", columns="strike", values="iv", aggfunc="median"))
                     iv_fig = go.Figure(data=[go.Surface(
                         x=iv_grid.columns.astype(float), y=iv_grid.index.astype(float), z=iv_grid.to_numpy(),
-                        colorscale="Turbo", connectgaps=True, colorbar={"title": "IV %"}, lighting={"ambient":0.72,"diffuse":0.85,"specular":0.18,"roughness":0.82,"fresnel":0.08},
+                        colorscale="Turbo", connectgaps=False, colorbar={"title": "IV %"}, lighting={"ambient":0.72,"diffuse":0.85,"specular":0.18,"roughness":0.82,"fresnel":0.08},
                         hovertemplate="Strike: %{x:.2f}<br>DTE: %{y:.0f}<br>IV: %{z:.2f}%<extra></extra>"
                     )])
                     iv_fig.update_layout(title="IMPLIED VOLATILITY SURFACE · STRIKE × DTE × IV",
@@ -1228,10 +1271,10 @@ def main():
                                "bgcolor":PANEL, "aspectmode":"manual", "aspectratio":{"x":1.45,"y":0.8,"z":0.62}, "camera":{"eye":{"x":1.55,"y":1.55,"z":0.9}}, "xaxis":{"gridcolor":GRID}, "yaxis":{"gridcolor":GRID}, "zaxis":{"gridcolor":GRID}},
                         margin={"l":0,"r":0,"t":50,"b":0})
                     st.plotly_chart(iv_fig, use_container_width=True, config={"displayModeBar":True,"displaylogo":False})
-                    liq_grid = smooth_surface_grid(options.pivot_table(index="dte", columns="strike", values="liquidity_proxy", aggfunc="sum"))
+                    liq_grid = smooth_surface_grid(options.pivot_table(index="dte", columns="strike", values="liquidity_proxy", aggfunc="sum"), value_transform="log1p")
                     liq_fig = go.Figure(data=[go.Surface(
                         x=liq_grid.columns.astype(float), y=liq_grid.index.astype(float), z=liq_grid.to_numpy(),
-                        colorscale="Viridis", connectgaps=True, colorbar={"title":"Liquidity proxy"}, lighting={"ambient":0.72,"diffuse":0.85,"specular":0.18,"roughness":0.82,"fresnel":0.08},
+                        colorscale="Viridis", connectgaps=False, colorbar={"title":"Liquidity proxy"}, lighting={"ambient":0.72,"diffuse":0.85,"specular":0.18,"roughness":0.82,"fresnel":0.08},
                         hovertemplate="Strike: %{x:.2f}<br>DTE: %{y:.0f}<br>Proxy: %{z:,.1f}<extra></extra>"
                     )])
                     liq_fig.update_layout(title="DISPLAYED LIQUIDITY PROXY · STRIKE × DTE",
