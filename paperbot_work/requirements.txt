@@ -6,3 +6,4 @@ streamlit>=1.37.0
 plotly>=5.18.0
 requests>=2.31.0
 pytz>=2023.3
+scipy>=1.11.0
