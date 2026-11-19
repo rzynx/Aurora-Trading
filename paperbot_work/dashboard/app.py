@@ -387,6 +387,7 @@ def smooth_surface_grid(grid, strike_points=140, dte_points=80, value_transform=
     """
     from scipy.interpolate import griddata
     from scipy.ndimage import gaussian_filter
+    from scipy.spatial import QhullError
 
     grid = grid.copy().apply(pd.to_numeric, errors="coerce")
     grid = grid.sort_index().sort_index(axis=1)
@@ -415,16 +416,21 @@ def smooth_surface_grid(grid, strike_points=140, dte_points=80, value_transform=
         source_x[valid] / strike_span,
         source_y[valid] / dte_span,
     ])
+    if len(points) < 3 or np.linalg.matrix_rank(points - points.mean(axis=0)) < 2:
+        return grid
     values = observed[valid]
     if value_transform == "log1p":
         values = np.log1p(np.clip(values, 0, None))
 
     target_x, target_y = np.meshgrid(dense_strikes, dense_dtes)
-    interpolated = griddata(
-        points, values,
-        (target_x / strike_span, target_y / dte_span),
-        method="linear",
-    )
+    try:
+        interpolated = griddata(
+            points, values,
+            (target_x / strike_span, target_y / dte_span),
+            method="linear",
+        )
+    except QhullError:
+        return grid
     finite = np.isfinite(interpolated)
     if finite.any() and sigma > 0:
         weights = gaussian_filter(finite.astype(float), sigma=sigma, mode="nearest")
