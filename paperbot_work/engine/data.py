@@ -196,7 +196,7 @@ def submit_bracket_order(symbol, qty, take_profit_price, stop_loss_price):
     from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass
     if '/' in symbol:
         raise ValueError('Alpaca crypto does not support bracket order classes; crypto entry blocked.')
-    qty = float(qty)
+    qty = int(float(qty))
     take_profit_price = float(take_profit_price)
     stop_loss_price = float(stop_loss_price)
     if qty <= 0 or stop_loss_price <= 0 or take_profit_price <= 0:
@@ -208,7 +208,7 @@ def submit_bracket_order(symbol, qty, take_profit_price, stop_loss_price):
         symbol=symbol,
         qty=qty,
         side=OrderSide.BUY,
-        time_in_force=TimeInForce.DAY,
+        time_in_force=TimeInForce.GTC,
         order_class=OrderClass.BRACKET,
         take_profit=TakeProfitRequest(limit_price=round(take_profit_price, 2)),
         stop_loss=StopLossRequest(stop_price=round(stop_loss_price, 2)),
