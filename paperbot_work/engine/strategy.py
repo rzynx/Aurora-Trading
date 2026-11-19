@@ -73,7 +73,7 @@ def analyze_symbol(symbol: str) -> dict:
     return result
 
 
-def run_daily_scan(symbols: Optional[list] = None, execute: bool = False) -> list[dict]:
+def run_daily_scan(symbols: Optional[list] = None, execute: bool = False, max_new_entries: Optional[int] = None) -> list[dict]:
     symbols = symbols or ALL_SYMBOLS
     results = []
     allowed, daily_pnl = check_daily_loss_limit()
@@ -84,6 +84,7 @@ def run_daily_scan(symbols: Optional[list] = None, execute: bool = False) -> lis
         print('BLOCKED: daily loss limit reached or risk check unavailable; no orders sent.')
         return results
     positions = get_positions() if execute else {}
+    new_entries = 0
     for symbol in symbols:
         print(f'Analyzing {symbol}...', end=' ')
         try:
@@ -93,30 +94,50 @@ def run_daily_scan(symbols: Optional[list] = None, execute: bool = False) -> lis
                         'reason': f'analysis error: {exc}', 'htf': {}, 'sentiment': 0.0, 'fvgs': []}
         results.append(analysis)
         print(f"→ {analysis['signal'].upper():5} score={analysis['confluence']:.2f} | {analysis.get('reason','')[:80]}")
-        if not execute or analysis['signal'] == 'none':
+        if not execute:
+            continue
+        if analysis['signal'] == 'none':
+            analysis['execution_status'] = 'NO TRADE — no qualified setup'
             continue
         # This bot only opens long positions; bearish signals close existing longs.
         pos_key = symbol if symbol in positions else symbol.replace('/USD', '')
         has_pos = pos_key in positions
         if analysis['signal'] == 'short':
             if has_pos and float(positions[pos_key].qty) > 0:
-                close_position(pos_key)
+                closed = close_position(pos_key)
+                analysis['execution_status'] = 'PAPER CLOSE SUBMITTED' if closed else 'PAPER CLOSE FAILED'
+            else:
+                analysis['execution_status'] = 'NO NEW SHORT — short entries disabled'
             continue
-        if has_pos or analysis['size'] <= 0:
+        if has_pos:
+            analysis['execution_status'] = 'SKIPPED — position already open'
+            continue
+        if analysis['size'] <= 0:
+            analysis['execution_status'] = 'SKIPPED — calculated size is zero'
+            continue
+        if max_new_entries is not None and new_entries >= max_new_entries:
+            analysis['execution_status'] = 'SKIPPED — per-scan entry limit reached'
             continue
         if len(positions) >= MAX_OPEN_POSITIONS:
+            analysis['execution_status'] = 'BLOCKED — maximum open positions reached'
             print(f'   BLOCKED {symbol}: max open positions reached')
             continue
         if heat['heat_pct'] >= 0.75:
+            analysis['execution_status'] = 'BLOCKED — gross exposure at/above 75%'
             print(f'   BLOCKED {symbol}: portfolio gross exposure at/above 75%')
             continue
         try:
             order = submit_market_order(symbol, analysis['size'], 'buy')
-            print(f"   PAPER BUY submitted: {analysis['size']} {symbol} | order={getattr(order, 'id', 'submitted')}")
+            order_id = str(getattr(order, 'id', 'submitted'))
+            analysis['execution_status'] = 'PAPER BUY SUBMITTED'
+            analysis['order_id'] = order_id
+            print(f"   PAPER BUY submitted: {analysis['size']} {symbol} | order={order_id}")
             # Reserve slot/exposure for this scan to avoid stacking correlated orders.
             positions[symbol] = True
+            new_entries += 1
             heat['heat_pct'] += min(analysis['size']*analysis.get('entry_price', 0)/max(heat['equity'], 1), 0.25)
         except Exception as exc:
+            analysis['execution_status'] = f'ORDER FAILED: {exc}'
             print(f'   ORDER FAILED {symbol}: {exc}')
     return results
 
