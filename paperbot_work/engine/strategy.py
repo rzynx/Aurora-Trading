@@ -8,23 +8,28 @@ from .indicators import add_indicators, detect_regime, detect_fvgs, confluence_s
 from .quant import volatility_adjusted_size, check_daily_loss_limit, portfolio_heat
 
 
+def _news_analysis(symbol):
+    """Score recent relevant headlines with a small finance-specific phrase lexicon."""
+    items = get_news([symbol], hours=12)
+    positive = ('beats expectations', 'profit beats', 'revenue beats', 'raises guidance',
+        'upgrade', 'price target raised', 'strong demand', 'record revenue', 'approval',
+        'partnership', 'surges', 'rallies', 'adoption grows', 'inflows')
+    negative = ('misses expectations', 'profit miss', 'revenue miss', 'cuts guidance',
+        'downgrade', 'price target cut', 'investigation', 'lawsuit', 'hack', 'exploit',
+        'outage', 'bankruptcy', 'sec charges', 'liquidation', 'plunges', 'selloff',
+        'sells off', 'outflows')
+    scores = []
+    for item in items[:10]:
+        text = ((item.get('headline') or '') + ' ' + (item.get('summary') or '')).lower()
+        pos = sum(1 for phrase in positive if phrase in text)
+        neg = sum(1 for phrase in negative if phrase in text)
+        scores.append(max(-1.0, min(1.0, (pos-neg) / max(1, pos+neg))))
+    sentiment = float(sum(scores)/len(scores)) if scores else 0.0
+    return round(sentiment, 3), items[:6]
+
+
 def _news_sentiment(symbol):
-    news = get_news([symbol], hours=12)
-    if not news:
-        return 0.0
-    try:
-        from textblob import TextBlob
-        scores = [TextBlob((n.get('headline') or '')+' '+(n.get('summary') or '')).sentiment.polarity for n in news[:8]]
-        return float(sum(scores)/len(scores)) if scores else 0.0
-    except ImportError:
-        # Conservative fallback: whole-phrase matching avoids counting "inflation rises" as positive.
-        positive = ('shares rise', 'stock rises', 'profit beats', 'revenue beats', 'raises guidance', 'record high', 'surges', 'rallies')
-        negative = ('shares fall', 'stock falls', 'profit misses', 'revenue misses', 'cuts guidance', 'record low', 'plunges', 'sells off')
-        score = 0
-        for item in news[:8]:
-            text = ((item.get('headline') or '')+' '+(item.get('summary') or '')).lower()
-            score += int(any(p in text for p in positive)) - int(any(n in text for n in negative))
-        return max(-1.0, min(1.0, score/max(1, min(len(news), 8))))
+    return _news_analysis(symbol)[0]
 
 
 def analyze_symbol(symbol: str) -> dict:
@@ -50,18 +55,24 @@ def analyze_symbol(symbol: str) -> dict:
     if not ltf_df.empty:
         result['ltf'] = detect_regime(add_indicators(ltf_df))
 
-    sentiment = _news_sentiment(symbol)
-    result['sentiment'] = round(sentiment, 3)
+    sentiment, headlines = _news_analysis(symbol)
+    result['sentiment'] = sentiment
+    result['news_headlines'] = headlines
+    result['news_count'] = len(headlines)
     score = confluence_score(htf_regime, result['fvgs'], htf_regime.get('bias', 'neutral'), sentiment)
     result['confluence'] = score
     bias = htf_regime.get('bias')
     active = [f for f in result['fvgs'] if not f.get('mitigated')]
     aligned = any(f.get('type') == ('bullish' if bias == 'bullish' else 'bearish') for f in active) if bias in ('bullish', 'bearish') else False
-    if score >= MIN_CONFLUENCE_SCORE and bias in ('bullish', 'bearish') and aligned:
+    news_note = f"news {sentiment:+.2f} across {len(headlines)} headlines"
+    adverse_news_veto = bias == 'bullish' and sentiment <= -0.35 and len(headlines) > 0
+    if score >= MIN_CONFLUENCE_SCORE and bias in ('bullish', 'bearish') and aligned and not adverse_news_veto:
         result['signal'] = 'long' if bias == 'bullish' else 'short'
-        result['reason'] = f'{bias.title()} HTF bias + aligned active FVG | score={score:.3f}'
+        result['reason'] = f'{bias.title()} HTF bias + aligned active FVG + {news_note} | score={score:.3f}'
+    elif adverse_news_veto:
+        result['reason'] = f'LONG VETO: adverse news conflicts with bullish structure | {news_note}'
     else:
-        result['reason'] = f'No qualified setup (score={score:.3f}, bias={bias}, aligned FVG={aligned})'
+        result['reason'] = f'No qualified setup (score={score:.3f}, bias={bias}, aligned FVG={aligned}; {news_note})'
 
     if result['signal'] != 'none':
         price = float(htf_df['close'].iloc[-1])
