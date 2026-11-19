@@ -604,6 +604,17 @@ def main():
             render_live_tracker()
         live_tracker_fragment()
 
+        st.markdown(f'<div class="panel-title">02A / DESK MARKET STRUCTURE · {selected_symbol}</div>', unsafe_allow_html=True)
+        desk_bars = get_bars(selected_symbol, timeframe, limit=180)
+        if desk_bars is not None and not desk_bars.empty:
+            desk_fig, desk_regime, desk_indicators, desk_adx, desk_rsi, desk_atr = aurora_candlestick_figure(
+                desk_bars, selected_symbol, f"{selected_symbol} · {timeframe} · AURORA DESK CHART")
+            st.plotly_chart(desk_fig, use_container_width=True,
+                            config={"displayModeBar": True, "displaylogo": False})
+            st.caption(f"AURORA REGIME: {desk_regime} · AUTO-SELECTED: {desk_indicators} · ADX {desk_adx:.1f} · RSI {desk_rsi:.1f} · ATR {desk_atr:.4f}")
+        else:
+            st.warning("No market bars returned for the Desk Overview chart. Check the selected instrument and Alpaca data access.")
+
         left, right = st.columns([1.7, 1])
         with left:
             st.markdown('<div class="panel-title">02 / EQUITY CURVE · BROKER HISTORY</div>', unsafe_allow_html=True)
