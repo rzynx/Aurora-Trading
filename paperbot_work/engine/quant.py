@@ -1,6 +1,6 @@
 """Position sizing and fail-safe paper-account risk controls."""
 import numpy as np
-from .config import RISK_PER_TRADE, MAX_POSITION_PCT, DAILY_LOSS_LIMIT
+from .config import RISK_PER_TRADE, MAX_POSITION_PCT, DAILY_LOSS_LIMIT_DOLLARS, DAILY_PROFIT_TARGET_DOLLARS
 from .data import get_account, get_positions
 
 
@@ -21,8 +21,11 @@ def check_daily_loss_limit():
         equity, prior = float(account.equity), float(account.last_equity)
         if prior <= 0 or not np.isfinite(equity):
             return False, 0.0
-        pnl = (equity-prior)/prior
-        return pnl > -DAILY_LOSS_LIMIT, round(pnl, 4)
+        day_pnl_dollars = equity - prior
+        pnl_pct = day_pnl_dollars / prior
+        # Both limits are hard entry locks. Existing position exits remain active.
+        allowed = (-DAILY_LOSS_LIMIT_DOLLARS < day_pnl_dollars < DAILY_PROFIT_TARGET_DOLLARS)
+        return allowed, round(pnl_pct, 4)
     except Exception as exc:
         print(f'[risk] Unable to verify daily loss limit; blocking trades: {exc}')
         return False, 0.0
