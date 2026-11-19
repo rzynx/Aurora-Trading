@@ -236,9 +236,18 @@ def load_market_floor():
     return pd.DataFrame(rows), unavailable
 
 
+@st.cache_data(ttl=20)
+def load_market_floor_candles(symbol):
+    """Recent one-minute OHLCV bars for the Market Floor candlestick chart."""
+    bars = get_bars(symbol, "1Min", limit=60)
+    if bars is None or bars.empty:
+        return pd.DataFrame()
+    return bars.copy()
+
+
 def render_market_floor():
     st.markdown('<div class="panel-title">09 / MARKET FLOOR · LIVE TAPE</div>', unsafe_allow_html=True)
-    st.caption("Real Alpaca market data · latest one-minute bars · refreshes automatically every 30 seconds. This is a market-data monitor, not a direct NYSE exchange-floor feed.")
+    st.caption("Real Alpaca market data · one-minute OHLCV candles · refreshes automatically every 30 seconds. This is a market-data monitor, not a direct NYSE exchange-floor feed.")
     frame, unavailable = load_market_floor()
     if frame.empty:
         st.warning("No latest bars returned. Check Alpaca market-data access and feed availability.")
@@ -266,6 +275,36 @@ def render_market_floor():
             font={"family":"IBM Plex Mono, monospace","color":MUTED,"size":10},
             margin={"l":15,"r":15,"t":45,"b":20}, yaxis={"gridcolor":GRID,"ticksuffix":"%"})
         st.plotly_chart(fig, use_container_width=True, config={"displayModeBar":False})
+
+        st.markdown('<div class="panel-title">CANDLESTICK TAPE · 1-MINUTE OHLC</div>', unsafe_allow_html=True)
+        candle_symbol = st.selectbox("Candlestick instrument", list(ALL_SYMBOLS), key="market_floor_candle_symbol")
+        candle_bars = load_market_floor_candles(candle_symbol)
+        if candle_bars.empty:
+            st.warning(f"No one-minute OHLC bars returned for {candle_symbol}.")
+        else:
+            candle_fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=.035,
+                                       row_heights=[.78, .22])
+            candle_fig.add_trace(go.Candlestick(
+                x=candle_bars["time"], open=candle_bars["open"], high=candle_bars["high"],
+                low=candle_bars["low"], close=candle_bars["close"], name=candle_symbol,
+                increasing_line_color=GREEN, decreasing_line_color=RED,
+                increasing_fillcolor=GREEN, decreasing_fillcolor=RED,
+            ), row=1, col=1)
+            candle_fig.add_trace(go.Bar(
+                x=candle_bars["time"], y=candle_bars["volume"], name="Volume",
+                marker_color="rgba(53,200,232,.45)",
+            ), row=2, col=1)
+            candle_fig.update_layout(
+                title=f"{candle_symbol} · LAST 60 ONE-MINUTE CANDLES",
+                height=470, paper_bgcolor=PANEL, plot_bgcolor=PANEL,
+                font=dict(color=MUTED, family="IBM Plex Mono, monospace", size=10),
+                margin=dict(l=12, r=12, t=42, b=12), xaxis_rangeslider_visible=False,
+                showlegend=False, hovermode="x unified",
+            )
+            candle_fig.update_xaxes(showgrid=False, gridcolor=GRID)
+            candle_fig.update_yaxes(showgrid=True, gridcolor=GRID)
+            st.plotly_chart(candle_fig, use_container_width=True,
+                            config={"displayModeBar": True, "displaylogo": False})
         st.caption("Latest bar timestamps are UTC. When the market is closed, timestamps and prices will be stale until the next session.")
     if unavailable:
         st.caption("No recent bar returned for: " + ", ".join(unavailable))
