@@ -1238,7 +1238,7 @@ def main():
                         height=560, paper_bgcolor=PANEL, plot_bgcolor=PANEL,
                         font={"family":"IBM Plex Mono, monospace","color":MUTED,"size":10},
                         scene={"xaxis_title":"Strike price ($)","yaxis_title":"Days to expiry","zaxis_title":"OI / top-of-book proxy",
-                               "bgcolor":PANEL, "xaxis":{"gridcolor":GRID}, "yaxis":{"gridcolor":GRID}, "zaxis":{"gridcolor":GRID}},
+                               "bgcolor":PANEL, "aspectmode":"manual", "aspectratio":{"x":1.45,"y":0.8,"z":0.62}, "camera":{"eye":{"x":1.55,"y":1.55,"z":0.9}}, "xaxis":{"gridcolor":GRID}, "yaxis":{"gridcolor":GRID}, "zaxis":{"gridcolor":GRID}},
                         margin={"l":0,"r":0,"t":50,"b":0})
                     st.plotly_chart(liq_fig, use_container_width=True, config={"displayModeBar":True,"displaylogo":False})
                     display = options.sort_values(["open_interest","two_sided_depth_usd"], ascending=False).head(30)
