@@ -18,7 +18,7 @@ st.set_page_config(
     page_title="AURORA TRADING | Quant Terminal",
     page_icon="◈",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 # Streamlit Cloud secrets and local/GitHub environment variables are separate.
@@ -76,6 +76,32 @@ hr { border-color: #1C2A3B; }
 .micro { color:#8292A8; font: .68rem 'IBM Plex Mono',monospace; letter-spacing:.08em; }
 .big-number { color:#EAF2FC; font:600 1.6rem 'IBM Plex Mono',monospace; }
 div[data-testid="stAlert"] { border-radius:6px; }
+/* Phone-first layout: compact gutters, horizontally scrollable navigation, readable charts/tables. */
+@media (max-width: 768px) {
+  .block-container { padding: .65rem .65rem 1.25rem !important; }
+  .terminal-top { flex-wrap:wrap; gap:8px; }
+  .brand { font-size:1.05rem; }
+  .panel { padding:10px; }
+  div[data-testid="stMetric"] { padding:9px 10px; min-width:0; }
+  div[data-testid="stMetricLabel"] { font-size:.62rem; letter-spacing:.04em; }
+  div[data-testid="stMetricValue"] { font-size:1.05rem; overflow-wrap:anywhere; }
+  div[data-testid="stMetricDelta"] { font-size:.68rem; }
+  [data-testid="stTabs"] [data-baseweb="tab-list"] {
+    overflow-x:auto; flex-wrap:nowrap; gap:6px; scrollbar-width:thin;
+  }
+  [data-testid="stTabs"] [data-baseweb="tab"] { flex:0 0 auto; padding:8px 10px; font-size:.78rem; }
+  [data-testid="stPlotlyChart"] { width:100% !important; }
+  [data-testid="stDataFrame"] { overflow-x:auto; }
+  [data-testid="stSidebar"] { min-width: min(82vw, 300px); }
+  h1 { font-size:1.55rem !important; }
+  h2 { font-size:1.25rem !important; }
+  h3 { font-size:1.05rem !important; }
+}
+@media (max-width: 420px) {
+  .block-container { padding-left:.45rem !important; padding-right:.45rem !important; }
+  div[data-testid="stMetricValue"] { font-size:.92rem; }
+  [data-testid="stTabs"] [data-baseweb="tab"] { padding:7px 8px; font-size:.72rem; }
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -561,6 +587,119 @@ def render_crypto_kalshi_tracker():
 
 
 
+
+def render_portfolio_workspace(account, positions):
+    """Mobile-first portfolio with broker OHLC candles and executed-order markers."""
+    st.markdown('<div class="panel-title">PORTFOLIO TERMINAL · PAPER ACCOUNT</div>', unsafe_allow_html=True)
+    st.caption("Broker-sourced account, holdings and filled orders. Green ▲ marks buys; red ▼ marks sells. All execution remains paper-only.")
+
+    equity = float(account.equity)
+    cash = float(account.cash)
+    market_value = sum(float(getattr(p, "market_value", 0) or 0) for p in positions.values())
+    unrealized = sum(float(getattr(p, "unrealized_pl", 0) or 0) for p in positions.values())
+    k = st.columns(2)
+    k[0].metric("ACCOUNT EQUITY", fmt_money(equity))
+    k[1].metric("CASH", fmt_money(cash))
+    k = st.columns(2)
+    k[0].metric("HOLDINGS VALUE", fmt_money(market_value))
+    k[1].metric("OPEN P&L", fmt_money(unrealized))
+
+    st.markdown('<div class="panel-title">HOLDINGS</div>', unsafe_allow_html=True)
+    if positions:
+        holding_rows = []
+        for symbol, p in positions.items():
+            holding_rows.append({
+                "ASSET": symbol,
+                "SIDE": "LONG" if float(p.qty) > 0 else "SHORT",
+                "QUANTITY": float(p.qty),
+                "AVG ENTRY": float(p.avg_entry_price),
+                "MARK": float(p.current_price),
+                "MARKET VALUE": float(p.market_value),
+                "UNREALIZED P&L": float(p.unrealized_pl),
+                "RETURN %": float(p.unrealized_plpc) * 100,
+            })
+        st.dataframe(pd.DataFrame(holding_rows), use_container_width=True, hide_index=True,
+            column_config={
+                "QUANTITY": st.column_config.NumberColumn(format="%.6f"),
+                "AVG ENTRY": st.column_config.NumberColumn(format="$%.4f"),
+                "MARK": st.column_config.NumberColumn(format="$%.4f"),
+                "MARKET VALUE": st.column_config.NumberColumn(format="$%.2f"),
+                "UNREALIZED P&L": st.column_config.NumberColumn(format="$%.2f"),
+                "RETURN %": st.column_config.NumberColumn(format="%+.2f%%"),
+            })
+    else:
+        st.info("No open positions in the paper account.")
+
+    st.markdown('<div class="panel-title">CANDLESTICK CHART · EXECUTION MARKERS</div>', unsafe_allow_html=True)
+    held_symbols = list(positions.keys())
+    chart_choices = list(dict.fromkeys(held_symbols + list(ALL_SYMBOLS)))
+    chart_symbol = st.selectbox("Portfolio chart asset", chart_choices, key="portfolio_chart_symbol")
+    chart_tf = st.selectbox("Candle interval", ["5Min", "15Min", "1Hour", "1Day"], index=2, key="portfolio_chart_tf")
+    bars = get_bars(chart_symbol, chart_tf, limit=180)
+    try:
+        from engine.data import get_recent_orders
+        orders = get_recent_orders(limit=100)
+    except Exception as exc:
+        orders = []
+        st.warning(f"Could not load broker order history: {exc}")
+
+    if bars is None or bars.empty:
+        st.warning(f"No {chart_tf} OHLCV candles returned for {chart_symbol}.")
+    else:
+        fig, regime, selected_indicators, adx, rsi, atr = aurora_candlestick_figure(
+            bars, chart_symbol, f"{chart_symbol} · {chart_tf} · FILLED BUY / SELL MARKERS")
+        filled = [o for o in orders if o.get("symbol") == chart_symbol
+                  and float(o.get("filled_qty") or 0) > 0
+                  and o.get("filled_avg_price")]
+        buy_x, buy_y, sell_x, sell_y = [], [], [], []
+        for order in filled:
+            stamp = order.get("filled_at") or order.get("submitted_at")
+            if stamp is None:
+                continue
+            try:
+                stamp = pd.to_datetime(stamp, utc=True)
+                price = float(order["filled_avg_price"])
+            except Exception:
+                continue
+            if order.get("side") == "BUY":
+                buy_x.append(stamp); buy_y.append(price)
+            elif order.get("side") == "SELL":
+                sell_x.append(stamp); sell_y.append(price)
+        if buy_x:
+            fig.add_trace(go.Scatter(x=buy_x, y=buy_y, mode="markers", name="BUY fills",
+                marker=dict(symbol="triangle-up", size=13, color=GREEN, line=dict(color="#EAF2FC", width=1)),
+                hovertemplate="BUY fill<br>%{x}<br>$%{y:.4f}<extra></extra>"), row=1, col=1)
+        if sell_x:
+            fig.add_trace(go.Scatter(x=sell_x, y=sell_y, mode="markers", name="SELL fills",
+                marker=dict(symbol="triangle-down", size=13, color=RED, line=dict(color="#EAF2FC", width=1)),
+                hovertemplate="SELL fill<br>%{x}<br>$%{y:.4f}<extra></extra>"), row=1, col=1)
+        fig.update_layout(height=620, autosize=True)
+        st.plotly_chart(fig, use_container_width=True,
+            config={"displayModeBar": True, "displaylogo": False, "responsive": True, "scrollZoom": True})
+        st.caption(f"AURORA regime: {regime} · {selected_indicators} · ADX {adx:.1f} · RSI {rsi:.1f} · ATR {atr:.4f}. Markers show broker-reported fills only; pending orders are not plotted.")
+
+    st.markdown('<div class="panel-title">BUY / SELL EXECUTION HISTORY</div>', unsafe_allow_html=True)
+    if orders:
+        order_rows = []
+        for order in orders:
+            order_rows.append({
+                "TIME (UTC)": str(order.get("filled_at") or order.get("submitted_at") or "—")[:19],
+                "ASSET": order.get("symbol", "—"),
+                "SIDE": order.get("side", "—"),
+                "STATUS": order.get("status", "—"),
+                "FILLED QTY": float(order.get("filled_qty") or 0),
+                "AVG FILL": float(order.get("filled_avg_price") or 0) or None,
+                "ORDER ID": str(order.get("id", ""))[:12],
+            })
+        st.dataframe(pd.DataFrame(order_rows), use_container_width=True, hide_index=True,
+            column_config={
+                "FILLED QTY": st.column_config.NumberColumn(format="%.6f"),
+                "AVG FILL": st.column_config.NumberColumn(format="$%.4f"),
+            })
+    else:
+        st.info("No broker orders have been returned yet. Filled buys and sells will appear here after paper execution.")
+    st.caption("This view reports Alpaca paper-account data. Closed-trade realized P&L is not calculated from order rows here; partial fills and multi-leg round trips need separate matching logic.")
+
 def safe_account_snapshot():
     account = get_account()
     positions = get_positions()
@@ -737,7 +876,7 @@ def main():
     else:
         st.success("BROKER ACCOUNT HEALTHY · ACTIVE · TRADING UNBLOCKED")
 
-    tabs = st.tabs(["DESK OVERVIEW", "MARKET ANALYTICS", "QUANT LAB / HEATMAPS", "MARKET FLOOR", "POSITIONS", "RISK & CONTROLS", "CRYPTO / KALSHI PREDICTIONS", "SWING & INVESTING"])
+    tabs = st.tabs(["DESK OVERVIEW", "MARKET ANALYTICS", "QUANT LAB / HEATMAPS", "MARKET FLOOR", "POSITIONS", "RISK & CONTROLS", "CRYPTO / KALSHI PREDICTIONS", "SWING & INVESTING", "PORTFOLIO"])
     with tabs[0]:
         @st.fragment(run_every="30s")
         def trade_intelligence_fragment():
@@ -948,6 +1087,9 @@ def main():
         ]
         st.dataframe(pd.DataFrame(risk_rows), use_container_width=True, hide_index=True)
         st.warning("Important: the current automated exit monitor checks positions periodically; it is not a guaranteed broker-hosted stop-loss. Do not treat this paper system as production-ready or connect live funds.")
+
+    with tabs[8]:
+        render_portfolio_workspace(account, positions)
 
     with tabs[7]:
         st.markdown('<div class="panel-title">10 / AURORA RESEARCH DOCTRINE · SWING TRADING & INVESTING</div>', unsafe_allow_html=True)
