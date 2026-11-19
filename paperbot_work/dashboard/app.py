@@ -271,6 +271,60 @@ def render_live_tracker():
 
 
 
+
+def render_crypto_kalshi_tracker():
+    """Near-live crypto tape paired with Kalshi's event-contract probabilities."""
+    st.markdown('<div class="panel-title">CRYPTO INTELLIGENCE · LIVE SPOT + KALSHI CONSENSUS</div>', unsafe_allow_html=True)
+    st.caption("Spot prices use Alpaca one-minute crypto bars. Prediction probabilities come from Kalshi's public YES quotes; they describe each contract's outcome, not a guaranteed coin-price forecast.")
+    from engine.kalshi import fetch_crypto_markets
+    crypto_symbols = ["BTC/USD", "ETH/USD", "SOL/USD", "XRP/USD"]
+    price_rows, price_frames = [], {}
+    for symbol in crypto_symbols:
+        bars = get_bars(symbol, "1Min", limit=60)
+        if bars is None or bars.empty:
+            continue
+        price_frames[symbol] = bars
+        last = bars.iloc[-1]
+        previous = bars.iloc[-2] if len(bars) > 1 else None
+        price = float(last["close"])
+        prior = float(previous["close"]) if previous is not None else price
+        move = ((price / prior) - 1) * 100 if prior else 0.0
+        price_rows.append({"ASSET": symbol.split("/")[0], "SPOT PRICE": price,
+                           "1M CHANGE %": move, "BAR TIME UTC": pd.to_datetime(last["time"], utc=True).strftime("%H:%M:%S")})
+    if price_rows:
+        st.dataframe(pd.DataFrame(price_rows), use_container_width=True, hide_index=True,
+            column_config={"SPOT PRICE": st.column_config.NumberColumn(format="$%,.4f"),
+                           "1M CHANGE %": st.column_config.NumberColumn(format="%+.3f%%")})
+    else:
+        st.warning("No Alpaca crypto bars returned. Check crypto market-data access.")
+    market_rows, errors = fetch_crypto_markets()
+    if market_rows:
+        market_frame = pd.DataFrame(market_rows)
+        market_frame["KALSHI SIGNAL"] = market_frame["YES PROBABILITY"].apply(
+            lambda p: "YES FAVORED" if p is not None and p >= 0.55 else ("NO FAVORED" if p is not None and p <= 0.45 else ("NEUTRAL" if p is not None else "NO QUOTE"))
+        )
+        market_frame = market_frame.sort_values(["COIN", "YES PROBABILITY"], ascending=[True, False], na_position="last")
+        st.dataframe(market_frame, use_container_width=True, hide_index=True,
+            column_config={
+                "YES PROBABILITY": st.column_config.ProgressColumn("YES IMPLIED PROBABILITY", min_value=0, max_value=1, format="%.1%"),
+                "VOLUME 24H": st.column_config.NumberColumn(format="%,.0f"),
+            })
+        selected = st.selectbox("Crypto chart", crypto_symbols, key="kalshi_crypto_chart")
+        chart_bars = price_frames.get(selected)
+        if chart_bars is not None and not chart_bars.empty:
+            fig = go.Figure(go.Scatter(x=chart_bars["time"], y=chart_bars["close"], mode="lines",
+                line={"color": CYAN, "width": 2}, name=selected))
+            chart_layout(fig, 300)
+            fig.update_layout(title=f"{selected} · LAST 60 ONE-MINUTE BARS")
+            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+        st.caption("Signal labels describe the Kalshi contract's YES/NO pricing only. They are not a standalone buy/sell recommendation. YES probability uses the bid/ask midpoint where available, otherwise the last traded YES price or bid.")
+    else:
+        st.warning("No open crypto contracts were found in the configured Kalshi series. Series availability can change; this panel will retry on its next refresh.")
+    if errors:
+        st.caption("Some Kalshi series could not be read: " + ", ".join(errors))
+
+
+
 def safe_account_snapshot():
     account = get_account()
     positions = get_positions()
@@ -348,6 +402,11 @@ def main():
         def live_tracker_fragment():
             render_live_tracker()
         live_tracker_fragment()
+
+        @st.fragment(run_every="30s")
+        def crypto_kalshi_fragment():
+            render_crypto_kalshi_tracker()
+        crypto_kalshi_fragment()
 
         left, right = st.columns([1.7, 1])
         with left:
