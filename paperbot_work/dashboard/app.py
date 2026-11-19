@@ -30,7 +30,7 @@ except Exception:
     pass
 
 from engine.config import ALL_SYMBOLS
-from engine.data import get_account, get_positions, get_bars, get_recent_orders
+from engine.data import get_account, get_positions, get_bars
 
 BG = "#080D16"
 PANEL = "#0D1522"
@@ -574,6 +574,7 @@ def render_trade_intelligence(positions):
     """Desk blotter: broker order states, live position P&L, scan thesis and news evidence."""
     st.markdown('<div class="panel-title">EXECUTION INTELLIGENCE · PAPER TRADE BLOTTER</div>', unsafe_allow_html=True)
     try:
+        from engine.data import get_recent_orders
         orders = get_recent_orders(limit=35)
     except Exception as exc:
         orders = []
