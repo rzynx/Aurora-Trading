@@ -31,6 +31,7 @@ except Exception:
 
 from engine.config import ALL_SYMBOLS
 from engine.data import get_account, get_positions, get_bars
+from engine.playbook import SWING_TRADING, LONG_TERM_INVESTING, DECISION_RULES
 
 BG = "#080D16"
 PANEL = "#0D1522"
@@ -736,7 +737,7 @@ def main():
     else:
         st.success("BROKER ACCOUNT HEALTHY · ACTIVE · TRADING UNBLOCKED")
 
-    tabs = st.tabs(["DESK OVERVIEW", "MARKET ANALYTICS", "QUANT LAB / HEATMAPS", "MARKET FLOOR", "POSITIONS", "RISK & CONTROLS", "CRYPTO / KALSHI PREDICTIONS"])
+    tabs = st.tabs(["DESK OVERVIEW", "MARKET ANALYTICS", "QUANT LAB / HEATMAPS", "MARKET FLOOR", "POSITIONS", "RISK & CONTROLS", "CRYPTO / KALSHI PREDICTIONS", "SWING & INVESTING"])
     with tabs[0]:
         @st.fragment(run_every="30s")
         def trade_intelligence_fragment():
@@ -947,6 +948,28 @@ def main():
         ]
         st.dataframe(pd.DataFrame(risk_rows), use_container_width=True, hide_index=True)
         st.warning("Important: the current automated exit monitor checks positions periodically; it is not a guaranteed broker-hosted stop-loss. Do not treat this paper system as production-ready or connect live funds.")
+
+    with tabs[7]:
+        st.markdown('<div class="panel-title">10 / AURORA RESEARCH DOCTRINE · SWING TRADING & INVESTING</div>', unsafe_allow_html=True)
+        st.caption("Educational decision framework. These principles do not generate orders or personalized investment recommendations.")
+        left, right = st.columns(2)
+        with left:
+            st.markdown("### SWING TRADING")
+            st.caption("Typical horizon: several days to several weeks")
+            for title, detail in SWING_TRADING:
+                with st.expander(title):
+                    st.write(detail)
+        with right:
+            st.markdown("### LONG-TERM INVESTING")
+            st.caption("Typical horizon: years, guided by fundamentals and allocation")
+            for title, detail in LONG_TERM_INVESTING:
+                with st.expander(title):
+                    st.write(detail)
+        st.markdown("### AURORA'S UNIVERSAL DECISION RULES")
+        for title, detail in DECISION_RULES:
+            st.markdown(f"**{title}**")
+            st.write(detail)
+        st.info("Portfolio separation: swing trades and long-term investments must have separate theses, time horizons, risk budgets, and exit rules. This playbook is educational only; the existing automated execution strategy has not been changed.")
 
     st.markdown("---")
     st.caption(f"AURORA TRADING · PAPER ENVIRONMENT · DATA SNAPSHOT {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')} · NOT FINANCIAL ADVICE")
