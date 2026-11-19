@@ -30,7 +30,7 @@ except Exception:
     pass
 
 from engine.config import ALL_SYMBOLS
-from engine.data import get_account, get_positions, get_bars
+from engine.data import get_account, get_positions, get_bars, get_latest_stock_trades
 from engine.playbook import SWING_TRADING, LONG_TERM_INVESTING, DECISION_RULES
 
 BG = "#080D16"
@@ -375,6 +375,61 @@ def load_market_floor_candles(symbol):
     if bars is None or bars.empty:
         return pd.DataFrame()
     return bars.copy()
+
+
+def render_market_floor_ticker():
+    """One-second polled latest-trade ticker; direction is relative to the prior poll."""
+    symbols = [symbol for symbol in ALL_SYMBOLS if "/" not in symbol]
+    frame = get_latest_stock_trades(symbols)
+    st.markdown('<div class="panel-title">LIVE EXCHANGE-STYLE TICKER · LATEST STOCK TRADES</div>', unsafe_allow_html=True)
+    if frame is None or frame.empty:
+        st.warning("Latest stock trades are unavailable. Check Alpaca credentials, IEX data access, and market hours.")
+        return
+
+    previous = st.session_state.get("market_floor_last_prices", {})
+    next_prices = dict(previous)
+    cards = []
+    for row in frame.to_dict("records"):
+        symbol = str(row["symbol"])
+        price = float(row["price"])
+        prior = previous.get(symbol)
+        if prior is None or float(prior) <= 0:
+            direction, color, arrow, move = "flat", "#8292A8", "•", "—"
+        elif price > float(prior):
+            direction, color, arrow = "up", GREEN, "▲"
+            move = f"+{((price / float(prior)) - 1) * 100:.3f}%"
+        elif price < float(prior):
+            direction, color, arrow = "down", RED, "▼"
+            move = f"{((price / float(prior)) - 1) * 100:.3f}%"
+        else:
+            direction, color, arrow, move = "flat", "#8292A8", "•", "0.000%"
+        next_prices[symbol] = price
+        cards.append(
+            f'<div class="aurora-tick {direction}" style="--tick-color:{color}">'
+            f'<span class="tick-symbol">{symbol}</span>'
+            f'<span class="tick-price">${price:,.2f}</span>'
+            f'<span class="tick-move">{arrow} {move}</span></div>'
+        )
+    st.session_state["market_floor_last_prices"] = next_prices
+    cards_html = "".join(cards)
+    st.markdown(
+        '<style>'
+        '.aurora-ticker-window{overflow:hidden;width:100%;border:1px solid #1C2A3B;border-radius:7px;background:#0A111D;padding:9px 0;margin:4px 0 8px}'
+        '.aurora-ticker-track{display:flex;gap:8px;width:max-content;animation:aurora-ticker-scroll 48s linear infinite}'
+        '.aurora-ticker-window:hover .aurora-ticker-track{animation-play-state:paused}'
+        '.aurora-tick{display:flex;align-items:center;gap:10px;min-width:190px;padding:9px 12px;border:1px solid #26364A;border-left:3px solid var(--tick-color);border-radius:5px;background:#0D1522;font-family:IBM Plex Mono,monospace;white-space:nowrap}'
+        '.tick-symbol{font-size:12px;font-weight:700;color:#EAF2FC}.tick-price{font-size:13px;color:#DCE6F2}.tick-move{font-size:11px;color:var(--tick-color)}'
+        '.aurora-tick.up{animation:aurora-flash-up .9s ease-out}.aurora-tick.down{animation:aurora-flash-down .9s ease-out}'
+        '@keyframes aurora-flash-up{0%{background:rgba(33,197,142,.38)}100%{background:#0D1522}}'
+        '@keyframes aurora-flash-down{0%{background:rgba(240,93,108,.38)}100%{background:#0D1522}}'
+        '@keyframes aurora-ticker-scroll{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}'
+        '</style>'
+        f'<div class="aurora-ticker-window"><div class="aurora-ticker-track">{cards_html}{cards_html}</div></div>',
+        unsafe_allow_html=True,
+    )
+    latest = pd.to_datetime(frame["trade_time"], utc=True, errors="coerce").max()
+    latest_text = latest.strftime("%H:%M:%S UTC") if pd.notna(latest) else "timestamp unavailable"
+    st.caption(f"Alpaca latest-trade snapshots · IEX feed · sampled approximately once per second · latest trade timestamp {latest_text}. This is not the full consolidated NYSE/CTA tape; prices may pause outside market hours.")
 
 
 def render_market_floor():
@@ -1039,6 +1094,11 @@ def main():
                 st.caption("Insufficient history / unavailable symbols: " + ", ".join(missing_symbols))
 
     with tabs[4]:
+        @st.fragment(run_every="1s")
+        def market_floor_ticker_fragment():
+            render_market_floor_ticker()
+        market_floor_ticker_fragment()
+
         @st.fragment(run_every="30s")
         def market_floor_fragment():
             render_market_floor()
