@@ -1,4 +1,4 @@
-"""Orochi Terminal — institutional-style paper trading dashboard."""
+"""AURORA TRADING — institutional-style paper trading dashboard."""
 import os
 import sys
 import calendar
@@ -663,14 +663,18 @@ def render_trade_intelligence(positions):
 
 def main():
     now = datetime.now(timezone.utc)
-    st.markdown(f"""
-    <div class="terminal-top">
-      <div><div class="brand"><span>◈</span> AURORA <span style="color:#8292A8;font-weight:500">QUANT TERMINAL</span></div>
-      <div class="subbrand">SYSTEMATIC STRATEGIES · EXECUTION MONITOR · RISK CONTROL</div></div>
-      <div style="text-align:right"><div class="status">● PAPER BROKER LINK</div>
-      <div class="micro">{now.strftime('%d %b %Y  %H:%M:%S')} UTC</div></div>
-    </div>
-    """, unsafe_allow_html=True)
+    logo_path = os.path.join(os.path.dirname(__file__), "assets", "aurora-logo.svg")
+    header_left, header_right = st.columns([3.2, 1])
+    with header_left:
+        st.image(logo_path, width=620)
+    with header_right:
+        st.markdown(
+            f'<div style="text-align:right;padding-top:24px">'
+            f'<div class="status">● PAPER BROKER LINK</div>'
+            f'<div class="micro">{now.strftime("%d %b %Y  %H:%M:%S")} UTC</div>'
+            f'<div class="micro" style="margin-top:8px">AURORA QUANT TERMINAL</div></div>',
+            unsafe_allow_html=True,
+        )
 
     with st.sidebar:
         st.markdown("## ◈ CONTROL")
