@@ -157,14 +157,14 @@ def render_pnl_calendar():
     c.metric('LOSING DAYS', losing)
     st.markdown('### ' + calendar.month_name[month] + ' ' + str(year))
     labels = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
-    header = st.columns(7)
+    header = st.columns(7, gap='medium')
     for col, label in zip(header, labels):
         col.markdown('**' + label + '**')
     for week in calendar.monthcalendar(year, month):
-        cols = st.columns(7)
+        cols = st.columns(7, gap='medium')
         for col, day_number in zip(cols, week):
             if not day_number:
-                col.markdown('<div style="height:65px"></div>', unsafe_allow_html=True)
+                col.markdown('<div style="height:76px;margin-bottom:8px"></div>', unsafe_allow_html=True)
                 continue
             value = values.get(date(year, month, day_number))
             bg, fg, detail = '#0D1522', '#8292A8', ''
@@ -173,7 +173,7 @@ def render_pnl_calendar():
             elif value is not None and value < -0.005:
                 bg, fg, detail = 'rgba(240,93,108,.18)', '#F05D6C', f'-${abs(value):,.2f}'
             html = (
-                f'<div style="height:65px;background:{bg};border:1px solid #1C2A3B;border-radius:6px;padding:7px;text-align:center">'
+                f'<div style="height:76px;margin-bottom:8px;background:{bg};border:1px solid #1C2A3B;border-radius:7px;padding:9px 5px;text-align:center">'
                 f'<b>{day_number}</b><div style="color:{fg};font-size:11px;margin-top:7px">{detail}</div></div>'
             )
             col.markdown(html, unsafe_allow_html=True)
