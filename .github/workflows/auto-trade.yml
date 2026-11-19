@@ -2,8 +2,8 @@ name: Orochi Paper Auto Trader
 
 on:
   schedule:
-    # Every 30 minutes, every day. The worker gates stock scans to market hours.
-    - cron: "*/30 * * * *"
+    # Every 5 minutes, every day. The worker gates stock scans to market hours.
+    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 permissions:
