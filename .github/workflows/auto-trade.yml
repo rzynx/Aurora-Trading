@@ -2,8 +2,8 @@ name: Orochi Paper Auto Trader
 
 on:
   schedule:
-    # Weekdays; the Python worker enforces 9:45 AM–3:00 PM New York time.
-    - cron: "*/5 13-20 * * 1-5"
+    # Every 30 minutes, every day. The worker gates stock scans to market hours.
+    - cron: "*/30 * * * *"
   workflow_dispatch:
 
 permissions:
