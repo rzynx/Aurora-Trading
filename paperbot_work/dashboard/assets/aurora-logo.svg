@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="340" viewBox="0 0 1200 340" role="img" aria-labelledby="title desc">
+<title id="title">AURORA TRADING</title><desc id="desc">Chrome orbital A mark with market candlesticks and AURORA TRADING wordmark.</desc>
+<defs>
+ <linearGradient id="metal" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff"/><stop offset=".35" stop-color="#9eafc2"/><stop offset=".62" stop-color="#edf5ff"/><stop offset="1" stop-color="#68788d"/></linearGradient>
+ <linearGradient id="glow" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#4bd8f5"/><stop offset="1" stop-color="#a6f1ff"/></linearGradient>
+ <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="5"/></filter>
+</defs>
+<rect width="1200" height="340" rx="22" fill="#080d16"/>
+<g opacity=".34" stroke="#6c849d" stroke-width="5" fill="none">
+ <path d="M28 184 L68 184 L68 145 L84 145 L84 220 L100 220 L100 120 L116 120 L116 196 L132 196 L132 90 L148 90 L148 178 L164 178 L164 64 L180 64 L180 155 L196 155 L196 105 L212 105 L212 164 L228 164 L228 75 L244 75 L244 146"/>
+ <path d="M958 172 L974 172 L974 108 L990 108 L990 205 L1006 205 L1006 80 L1022 80 L1022 190 L1038 190 L1038 45 L1054 45 L1054 164 L1070 164 L1070 95 L1086 95 L1086 185 L1102 185 L1102 65 L1118 65 L1118 158 L1134 158 L1134 32 L1150 32 L1150 184"/>
+</g>
+<g transform="translate(70 18)">
+ <path d="M125 235 L232 20 L339 235 L290 235 L232 118 L174 235 Z" fill="none" stroke="url(#metal)" stroke-width="18" stroke-linejoin="round"/>
+ <path d="M172 205 L291 205" stroke="url(#glow)" stroke-width="7" opacity=".9"/>
+ <ellipse cx="232" cy="132" rx="205" ry="67" transform="rotate(-18 232 132)" fill="none" stroke="url(#metal)" stroke-width="8"/>
+ <circle cx="425" cy="66" r="7" fill="#dffaff"/><circle cx="425" cy="66" r="18" fill="#54d9f5" opacity=".35" filter="url(#shadow)"/>
+</g>
+<g fill="url(#metal)" font-family="Georgia,serif" text-anchor="start">
+ <text x="555" y="168" font-size="104" letter-spacing="12">AURORA</text>
+</g>
+<text x="565" y="230" fill="#b7c7d9" font-family="Arial,sans-serif" font-size="39" letter-spacing="22">TRADING</text>
+<path d="M562 252 H1138" stroke="url(#glow)" stroke-width="2" opacity=".65"/>
+<text x="565" y="294" fill="#8292a8" font-family="Arial,sans-serif" font-size="18" letter-spacing="8">SYSTEMATIC STRATEGIES  ·  RISK CONTROL</text>
+</svg>
