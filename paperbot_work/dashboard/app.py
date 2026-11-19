@@ -876,7 +876,7 @@ def main():
     else:
         st.success("BROKER ACCOUNT HEALTHY · ACTIVE · TRADING UNBLOCKED")
 
-    tabs = st.tabs(["DESK OVERVIEW", "MARKET ANALYTICS", "QUANT LAB / HEATMAPS", "MARKET FLOOR", "POSITIONS", "RISK & CONTROLS", "CRYPTO / KALSHI PREDICTIONS", "SWING & INVESTING", "PORTFOLIO"])
+    tabs = st.tabs(["DESK OVERVIEW", "MARKET ANALYTICS", "QUANT LAB / HEATMAPS", "MARKET FLOOR", "POSITIONS", "RISK & CONTROLS", "CRYPTO / KALSHI PREDICTIONS", "SWING & INVESTING", "PORTFOLIO", "OPTIONS / LIQUIDITY 3D"])
     with tabs[0]:
         @st.fragment(run_every="30s")
         def trade_intelligence_fragment():
@@ -1112,6 +1112,69 @@ def main():
             st.markdown(f"**{title}**")
             st.write(detail)
         st.info("Portfolio separation: swing trades and long-term investments must have separate theses, time horizons, risk budgets, and exit rules. This playbook is educational only; the existing automated execution strategy has not been changed.")
+
+
+    with tabs[9]:
+        st.markdown('<div class="panel-title">11 / OPTIONS MICROSTRUCTURE · 3D SURFACES</div>', unsafe_allow_html=True)
+        st.caption("Option-chain research from Alpaca. This tab is analytics only and never places orders.")
+        option_symbol = st.selectbox("Underlying", ["SPY", "QQQ", "AAPL", "NVDA", "TSLA", "MSFT", "AMZN", "META"], key="aurora_options_underlying")
+        option_days = st.select_slider("Expiration horizon", options=[14, 30, 45], value=30, format_func=lambda x: f"{x} days")
+        option_side = st.segmented_control("Contract side", ["ALL", "CALLS", "PUTS"], default="ALL", key="aurora_options_side")
+        option_bars = get_bars(option_symbol, "1Min", limit=3)
+        if option_bars is None or option_bars.empty:
+            st.warning("No underlying quote returned by Alpaca. Options surface cannot be anchored to a current underlying price.")
+        else:
+            spot = float(option_bars.iloc[-1]["close"])
+            st.metric("UNDERLYING REFERENCE", f"${spot:,.2f}", f"{option_symbol} · last 1-minute bar")
+            @st.cache_data(ttl=60)
+            def cached_options_surface(symbol, reference_price, horizon):
+                from engine.data import get_options_liquidity_surface
+                return get_options_liquidity_surface(symbol, reference_price, horizon)
+            try:
+                with st.spinner("Loading option contracts, quotes, Greeks and open interest..."):
+                    options = cached_options_surface(option_symbol, round(spot, 4), option_days)
+                if option_side != "ALL" and not options.empty:
+                    options = options[options["type"] == ("CALL" if option_side == "CALLS" else "PUT")]
+                if options.empty:
+                    st.warning("No matching option snapshots were returned. Check market hours, data permissions, or choose another underlying.")
+                else:
+                    fresh_quotes = int(options["bid"].notna().sum() + options["ask"].notna().sum())
+                    st.caption(f"{len(options):,} contracts returned · {fresh_quotes:,} bid/ask fields populated · indicative feed")
+                    iv_grid = options.pivot_table(index="dte", columns="strike", values="iv", aggfunc="median")
+                    iv_fig = go.Figure(data=[go.Surface(
+                        x=iv_grid.columns.astype(float), y=iv_grid.index.astype(float), z=iv_grid.to_numpy(),
+                        colorscale="Turbo", colorbar={"title": "IV %"},
+                        hovertemplate="Strike: %{x:.2f}<br>DTE: %{y:.0f}<br>IV: %{z:.2f}%<extra></extra>"
+                    )])
+                    iv_fig.update_layout(title="IMPLIED VOLATILITY SURFACE · STRIKE × DTE × IV",
+                        height=620, paper_bgcolor=PANEL, plot_bgcolor=PANEL,
+                        font={"family":"IBM Plex Mono, monospace","color":MUTED,"size":10},
+                        scene={"xaxis_title":"Strike price ($)","yaxis_title":"Days to expiry","zaxis_title":"Implied volatility (%)",
+                               "bgcolor":PANEL, "xaxis":{"gridcolor":GRID}, "yaxis":{"gridcolor":GRID}, "zaxis":{"gridcolor":GRID}},
+                        margin={"l":0,"r":0,"t":50,"b":0})
+                    st.plotly_chart(iv_fig, use_container_width=True, config={"displayModeBar":True,"displaylogo":False})
+                    liq_grid = options.pivot_table(index="dte", columns="strike", values="liquidity_proxy", aggfunc="sum")
+                    liq_fig = go.Figure(data=[go.Surface(
+                        x=liq_grid.columns.astype(float), y=liq_grid.index.astype(float), z=liq_grid.to_numpy(),
+                        colorscale="Viridis", colorbar={"title":"Liquidity proxy"},
+                        hovertemplate="Strike: %{x:.2f}<br>DTE: %{y:.0f}<br>Proxy: %{z:,.1f}<extra></extra>"
+                    )])
+                    liq_fig.update_layout(title="DISPLAYED LIQUIDITY PROXY · STRIKE × DTE",
+                        height=560, paper_bgcolor=PANEL, plot_bgcolor=PANEL,
+                        font={"family":"IBM Plex Mono, monospace","color":MUTED,"size":10},
+                        scene={"xaxis_title":"Strike price ($)","yaxis_title":"Days to expiry","zaxis_title":"OI / top-of-book proxy",
+                               "bgcolor":PANEL, "xaxis":{"gridcolor":GRID}, "yaxis":{"gridcolor":GRID}, "zaxis":{"gridcolor":GRID}},
+                        margin={"l":0,"r":0,"t":50,"b":0})
+                    st.plotly_chart(liq_fig, use_container_width=True, config={"displayModeBar":True,"displaylogo":False})
+                    display = options.sort_values(["open_interest","two_sided_depth_usd"], ascending=False).head(30)
+                    st.markdown('<div class="panel-title">TOP CONTRACTS · OPEN INTEREST + QUOTE DEPTH</div>', unsafe_allow_html=True)
+                    st.dataframe(display[["contract","type","expiration","strike","open_interest","open_interest_date",
+                        "bid","ask","bid_size","ask_size","spread_pct","iv","delta","gamma","theta","vega"]],
+                        use_container_width=True, hide_index=True)
+                    st.caption("Liquidity proxy combines reported open interest with displayed best-bid/best-ask size. It is not full order-book depth, executed institutional flow, or proof of dealer positioning.")
+            except Exception as exc:
+                st.error(f"Options data unavailable: {exc}")
+                st.caption("The free Alpaca plan may return indicative quotes only. An OPRA subscription and signed agreement are required for consolidated real-time options quotes.")
 
     st.markdown("---")
     st.caption(f"AURORA TRADING · PAPER ENVIRONMENT · DATA SNAPSHOT {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')} · NOT FINANCIAL ADVICE")
