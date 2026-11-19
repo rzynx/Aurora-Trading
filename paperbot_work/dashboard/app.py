@@ -414,17 +414,16 @@ def render_market_floor_ticker():
     cards_html = "".join(cards)
     st.markdown(
         '<style>'
-        '.aurora-ticker-window{overflow:hidden;width:100%;border:1px solid #1C2A3B;border-radius:7px;background:#0A111D;padding:9px 0;margin:4px 0 8px}'
-        '.aurora-ticker-track{display:flex;gap:8px;width:max-content;animation:aurora-ticker-scroll 48s linear infinite}'
-        '.aurora-ticker-window:hover .aurora-ticker-track{animation-play-state:paused}'
+        '.aurora-ticker-window{overflow-x:auto;width:100%;border:1px solid #1C2A3B;border-radius:7px;background:#0A111D;padding:9px 0;margin:4px 0 8px}'
+        '.aurora-ticker-track{display:flex;gap:8px;width:max-content}'
+        ''
         '.aurora-tick{display:flex;align-items:center;gap:10px;min-width:190px;padding:9px 12px;border:1px solid #26364A;border-left:3px solid var(--tick-color);border-radius:5px;background:#0D1522;font-family:IBM Plex Mono,monospace;white-space:nowrap}'
         '.tick-symbol{font-size:12px;font-weight:700;color:#EAF2FC}.tick-price{font-size:13px;color:#DCE6F2}.tick-move{font-size:11px;color:var(--tick-color)}'
         '.aurora-tick.up{animation:aurora-flash-up .9s ease-out}.aurora-tick.down{animation:aurora-flash-down .9s ease-out}'
         '@keyframes aurora-flash-up{0%{background:rgba(33,197,142,.38)}100%{background:#0D1522}}'
         '@keyframes aurora-flash-down{0%{background:rgba(240,93,108,.38)}100%{background:#0D1522}}'
-        '@keyframes aurora-ticker-scroll{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}'
-        '</style>'
-        f'<div class="aurora-ticker-window"><div class="aurora-ticker-track">{cards_html}{cards_html}</div></div>',
+                '</style>'
+        f'<div class="aurora-ticker-window"><div class="aurora-ticker-track">{cards_html}</div></div>',
         unsafe_allow_html=True,
     )
     latest = pd.to_datetime(frame["trade_time"], utc=True, errors="coerce").max()
