@@ -214,8 +214,12 @@ def main():
 
     if not allowed:
         st.warning("RISK LOCK ACTIVE — daily loss threshold reached or risk verification failed. New entries are blocked.")
-    if str(getattr(account, "status", "")).lower() != "active" or bool(getattr(account, "trading_blocked", False)):
-        st.error("BROKER ACCOUNT STATUS REQUIRES ATTENTION — check Alpaca paper account.")
+    broker_status = str(getattr(account, "status", "unknown"))
+    trading_blocked = bool(getattr(account, "trading_blocked", False))
+    if broker_status.lower() != "active" or trading_blocked:
+        st.error("BROKER ACCOUNT STATUS REQUIRES ATTENTION")
+        st.write(f"Alpaca status: **{broker_status}** · Trading blocked: **{trading_blocked}**")
+        st.caption("These are the exact account flags returned by Alpaca. If status is active and trading_blocked is False, refresh the app and check the dashboard's deployed version.")
 
     tabs = st.tabs(["DESK OVERVIEW", "MARKET ANALYTICS", "QUANT LAB", "POSITIONS", "RISK & CONTROLS"])
     with tabs[0]:
