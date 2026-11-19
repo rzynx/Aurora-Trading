@@ -470,6 +470,45 @@ def render_crypto_kalshi_tracker():
     """Near-live crypto tape paired with Kalshi's event-contract probabilities."""
     st.markdown('<div class="panel-title">CRYPTO INTELLIGENCE · LIVE SPOT + KALSHI CONSENSUS</div>', unsafe_allow_html=True)
     st.caption("Spot prices use Alpaca one-minute crypto bars. Prediction probabilities come from Kalshi's public YES quotes; they describe each contract's outcome, not a guaranteed coin-price forecast.")
+
+    st.markdown('<div class="panel-title">AURORA AUTONOMOUS CRYPTO EXECUTION · PAPER ONLY</div>', unsafe_allow_html=True)
+    st.caption("Aurora scans BTC, ETH, SOL and XRP, ranks qualified long setups by confluence, and can submit at most ONE paper buy per click. It will stand aside if no setup passes the existing strategy and risk checks. New short positions remain disabled.")
+    if st.button("AURORA · SCAN + EXECUTE BEST CRYPTO SETUP", key="aurora_crypto_execute", use_container_width=True):
+        with st.spinner("Aurora is analyzing crypto regimes, multi-timeframe structure and risk..."):
+            try:
+                from engine.config import CRYPTO_SYMBOLS
+                from engine.strategy import run_daily_scan
+                from engine.data import get_positions
+                account_check = get_account()
+                account_status = str(getattr(getattr(account_check, "status", "unknown"), "value", getattr(account_check, "status", "unknown"))).split(".")[-1].lower()
+                if account_status != "active" or bool(getattr(account_check, "trading_blocked", False)):
+                    st.session_state["aurora_crypto_execution"] = {"status": "BLOCKED — paper account is not active or trading is blocked", "symbol": "—", "score": None}
+                else:
+                    candidates = run_daily_scan(symbols=CRYPTO_SYMBOLS, execute=False)
+                    open_positions = get_positions()
+                    def already_open(symbol):
+                        base = symbol.split("/")[0]
+                        return symbol in open_positions or base in open_positions or (base + "USD") in open_positions
+                    eligible = [item for item in candidates if item.get("signal") == "long" and not already_open(item.get("symbol", ""))]
+                    eligible.sort(key=lambda item: float(item.get("confluence", 0)), reverse=True)
+                    if not eligible:
+                        st.session_state["aurora_crypto_execution"] = {"status": "NO TRADE — no unheld crypto long setup passed Aurora's filters", "symbol": "—", "score": None}
+                    else:
+                        chosen = eligible[0]
+                        execution = run_daily_scan(symbols=[chosen["symbol"]], execute=True, max_new_entries=1)
+                        outcome = execution[0] if execution else {}
+                        st.session_state["aurora_crypto_execution"] = {
+                            "status": outcome.get("execution_status", "NO ORDER CONFIRMATION"),
+                            "symbol": chosen["symbol"], "score": float(chosen.get("confluence", 0)),
+                            "order_id": outcome.get("order_id", "—"),
+                        }
+            except Exception as exc:
+                st.session_state["aurora_crypto_execution"] = {"status": f"ERROR — {exc}", "symbol": "—", "score": None}
+    execution_result = st.session_state.get("aurora_crypto_execution")
+    if execution_result:
+        status = execution_result.get("status", "Unknown")
+        st.info(f"AURORA RESULT · {status} · ASSET {execution_result.get('symbol', '—')} · CONFLUENCE {execution_result.get('score') if execution_result.get('score') is not None else '—'} · ORDER {execution_result.get('order_id', '—')}")
+
     from engine.kalshi import fetch_crypto_markets
     crypto_symbols = ["BTC/USD", "ETH/USD", "SOL/USD", "XRP/USD"]
     price_rows, price_frames = [], {}
