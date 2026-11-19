@@ -399,17 +399,12 @@ def main():
     else:
         st.success("BROKER ACCOUNT HEALTHY · ACTIVE · TRADING UNBLOCKED")
 
-    tabs = st.tabs(["DESK OVERVIEW", "MARKET ANALYTICS", "QUANT LAB / HEATMAPS", "MARKET FLOOR", "POSITIONS", "RISK & CONTROLS"])
+    tabs = st.tabs(["DESK OVERVIEW", "MARKET ANALYTICS", "QUANT LAB / HEATMAPS", "MARKET FLOOR", "POSITIONS", "RISK & CONTROLS", "CRYPTO / KALSHI PREDICTIONS"])
     with tabs[0]:
         @st.fragment(run_every="30s")
         def live_tracker_fragment():
             render_live_tracker()
         live_tracker_fragment()
-
-        @st.fragment(run_every="30s")
-        def crypto_kalshi_fragment():
-            render_crypto_kalshi_tracker()
-        crypto_kalshi_fragment()
 
         left, right = st.columns([1.7, 1])
         with left:
@@ -566,6 +561,12 @@ def main():
         else:
             st.info("No open positions in the paper account.")
         st.caption("Positions are read directly from the Alpaca paper account. This panel does not submit orders.")
+
+    with tabs[6]:
+        @st.fragment(run_every="30s")
+        def crypto_kalshi_fragment():
+            render_crypto_kalshi_tracker()
+        crypto_kalshi_fragment()
 
     with tabs[5]:
         st.markdown('<div class="panel-title">08 / RISK ENGINE TELEMETRY</div>', unsafe_allow_html=True)
