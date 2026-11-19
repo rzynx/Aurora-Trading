@@ -189,6 +189,33 @@ def submit_market_order(symbol, qty, side):
     return client.submit_order(order)
 
 
+
+def submit_bracket_order(symbol, qty, take_profit_price, stop_loss_price):
+    """Submit an equity entry with broker-held OTOCO exits. Paper endpoint only."""
+    from alpaca.trading.requests import MarketOrderRequest, TakeProfitRequest, StopLossRequest
+    from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass
+    if '/' in symbol:
+        raise ValueError('Alpaca crypto does not support bracket order classes; crypto entry blocked.')
+    qty = float(qty)
+    take_profit_price = float(take_profit_price)
+    stop_loss_price = float(stop_loss_price)
+    if qty <= 0 or stop_loss_price <= 0 or take_profit_price <= 0:
+        raise ValueError('Invalid bracket quantity or exit price.')
+    if not stop_loss_price < take_profit_price:
+        raise ValueError('Stop-loss must be below take-profit for a long entry.')
+    client = _clients()[0]
+    request = MarketOrderRequest(
+        symbol=symbol,
+        qty=qty,
+        side=OrderSide.BUY,
+        time_in_force=TimeInForce.DAY,
+        order_class=OrderClass.BRACKET,
+        take_profit=TakeProfitRequest(limit_price=round(take_profit_price, 2)),
+        stop_loss=StopLossRequest(stop_price=round(stop_loss_price, 2)),
+    )
+    return client.submit_order(order_data=request)
+
+
 def close_position(symbol):
     try:
         _clients()[0].close_position(symbol)
