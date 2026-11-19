@@ -303,10 +303,13 @@ def render_crypto_kalshi_tracker():
         market_frame["KALSHI SIGNAL"] = market_frame["YES PROBABILITY"].apply(
             lambda p: "YES FAVORED" if p is not None and p >= 0.55 else ("NO FAVORED" if p is not None and p <= 0.45 else ("NEUTRAL" if p is not None else "NO QUOTE"))
         )
+        market_frame["YES IMPLIED PROBABILITY %"] = market_frame["YES PROBABILITY"].apply(
+            lambda p: round(float(p) * 100, 2) if p is not None and pd.notna(p) else None
+        )
         market_frame = market_frame.sort_values(["COIN", "YES PROBABILITY"], ascending=[True, False], na_position="last")
-        st.dataframe(market_frame, use_container_width=True, hide_index=True,
+        st.dataframe(market_frame.drop(columns=["YES PROBABILITY"]), use_container_width=True, hide_index=True,
             column_config={
-                "YES PROBABILITY": st.column_config.ProgressColumn("YES IMPLIED PROBABILITY", min_value=0, max_value=1, format="%.1%"),
+                "YES IMPLIED PROBABILITY %": st.column_config.ProgressColumn("YES IMPLIED PROBABILITY", min_value=0, max_value=100, format="%.1f%%"),
                 "VOLUME 24H": st.column_config.NumberColumn(format="%,.0f"),
             })
         selected = st.selectbox("Crypto chart", crypto_symbols, key="kalshi_crypto_chart")
