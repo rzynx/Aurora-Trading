@@ -326,3 +326,36 @@ def get_options_liquidity_surface(underlying, spot_price, days_ahead=45):
         * frame["two_sided_depth_usd"].clip(lower=0).pow(0.5)
     )
     return frame.sort_values(["expiration", "strike", "type"]).reset_index(drop=True)
+
+def get_latest_stock_trades(symbols):
+    """Fetch one batched latest-trade snapshot for a stock watchlist from Alpaca IEX."""
+    stock_symbols = [str(symbol).strip().upper() for symbol in symbols if str(symbol).strip() and "/" not in str(symbol)]
+    if not stock_symbols:
+        return pd.DataFrame()
+    try:
+        from alpaca.data.requests import StockLatestTradeRequest
+        from alpaca.data.enums import DataFeed
+        _, stock_client, _ = _clients()
+        request = StockLatestTradeRequest(symbol_or_symbols=stock_symbols, feed=DataFeed.IEX)
+        payload = stock_client.get_stock_latest_trade(request)
+        rows = []
+        for symbol in stock_symbols:
+            trade = payload.get(symbol) if isinstance(payload, dict) else None
+            if trade is None:
+                continue
+            price = float(getattr(trade, "price", 0) or 0)
+            if price <= 0:
+                continue
+            timestamp = getattr(trade, "timestamp", None)
+            rows.append({
+                "symbol": symbol,
+                "price": price,
+                "size": float(getattr(trade, "size", 0) or 0),
+                "trade_time": timestamp,
+                "feed": "IEX",
+            })
+        return pd.DataFrame(rows)
+    except Exception as exc:
+        print(f"[data] Latest stock trades unavailable: {exc}")
+        return pd.DataFrame()
+
