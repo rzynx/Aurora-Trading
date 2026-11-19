@@ -152,6 +152,64 @@ def quant_heatmap(matrix, title, zmin=-1, zmax=1):
     return fig
 
 
+@st.cache_data(ttl=20)
+def load_market_floor():
+    """Latest Alpaca one-minute bars; snapshots refresh every 20 seconds."""
+    rows, unavailable = [], []
+    for symbol in ALL_SYMBOLS:
+        bars = get_bars(symbol, "1Min", limit=3)
+        if bars is None or len(bars) < 1:
+            unavailable.append(symbol)
+            continue
+        last = bars.iloc[-1]
+        previous = bars.iloc[-2] if len(bars) > 1 else None
+        price = float(last["close"])
+        prior = float(previous["close"]) if previous is not None else price
+        change = ((price / prior) - 1) * 100 if prior else 0.0
+        rows.append({
+            "SYMBOL": symbol, "LAST": price, "1M CHANGE %": change,
+            "1M VOLUME": float(last["volume"]),
+            "BAR TIME (UTC)": pd.to_datetime(last["time"], utc=True).strftime("%H:%M:%S"),
+        })
+    return pd.DataFrame(rows), unavailable
+
+
+def render_market_floor():
+    st.markdown('<div class="panel-title">09 / MARKET FLOOR · LIVE TAPE</div>', unsafe_allow_html=True)
+    st.caption("Real Alpaca market data · latest one-minute bars · refreshes automatically every 30 seconds. This is a market-data monitor, not a direct NYSE exchange-floor feed.")
+    frame, unavailable = load_market_floor()
+    if frame.empty:
+        st.warning("No latest bars returned. Check Alpaca market-data access and feed availability.")
+    else:
+        frame = frame.sort_values("1M CHANGE %", ascending=False)
+        gainers = int((frame["1M CHANGE %"] > 0).sum())
+        losers = int((frame["1M CHANGE %"] < 0).sum())
+        unchanged = int((frame["1M CHANGE %"] == 0).sum())
+        a, b, c, d = st.columns(4)
+        a.metric("INSTRUMENTS REPORTING", len(frame))
+        b.metric("ADVANCING", gainers)
+        c.metric("DECLINING", losers)
+        d.metric("UNCHANGED", unchanged)
+        st.dataframe(frame, use_container_width=True, hide_index=True,
+            column_config={
+                "LAST": st.column_config.NumberColumn(format="$%.4f"),
+                "1M CHANGE %": st.column_config.NumberColumn(format="%.3f%%"),
+                "1M VOLUME": st.column_config.NumberColumn(format="%,.0f"),
+            })
+        fig = go.Figure(go.Bar(x=frame["SYMBOL"], y=frame["1M CHANGE %"],
+            marker_color=[GREEN if v >= 0 else RED for v in frame["1M CHANGE %"]],
+            hovertemplate="%{x}<br>1m change: %{y:.3f}%<extra></extra>"))
+        fig.update_layout(title="ONE-MINUTE MARKET BREADTH", height=280,
+            paper_bgcolor=PANEL, plot_bgcolor=PANEL,
+            font={"family":"IBM Plex Mono, monospace","color":MUTED,"size":10},
+            margin={"l":15,"r":15,"t":45,"b":20}, yaxis={"gridcolor":GRID,"ticksuffix":"%"})
+        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar":False})
+        st.caption("Latest bar timestamps are UTC. When the market is closed, timestamps and prices will be stale until the next session.")
+    if unavailable:
+        st.caption("No recent bar returned for: " + ", ".join(unavailable))
+
+
+
 def safe_account_snapshot():
     account = get_account()
     positions = get_positions()
@@ -221,7 +279,7 @@ def main():
         st.write(f"Alpaca status: **{broker_status}** · Trading blocked: **{trading_blocked}**")
         st.caption("These are the exact account flags returned by Alpaca. If status is active and trading_blocked is False, refresh the app and check the dashboard's deployed version.")
 
-    tabs = st.tabs(["DESK OVERVIEW", "MARKET ANALYTICS", "QUANT LAB", "POSITIONS", "RISK & CONTROLS"])
+    tabs = st.tabs(["DESK OVERVIEW", "MARKET ANALYTICS", "QUANT LAB / HEATMAPS", "MARKET FLOOR", "POSITIONS", "RISK & CONTROLS"])
     with tabs[0]:
         left, right = st.columns([1.7, 1])
         with left:
@@ -325,7 +383,7 @@ def main():
 
             st.markdown('<div class="panel-title">06C / MOMENTUM MATRIX</div>', unsafe_allow_html=True)
             momentum = pd.DataFrame({
-                "1D": returns.tail(1).sum() * 100,
+                "1D": returns.iloc[-1] * 100,
                 "5D": ((1 + returns.tail(5)).prod() - 1) * 100,
                 "20D": ((1 + returns.tail(20)).prod() - 1) * 100,
             }).T
@@ -354,6 +412,12 @@ def main():
                 st.caption("Insufficient history / unavailable symbols: " + ", ".join(missing_symbols))
 
     with tabs[3]:
+        @st.fragment(run_every="30s")
+        def market_floor_fragment():
+            render_market_floor()
+        market_floor_fragment()
+
+    with tabs[4]:
         st.markdown('<div class="panel-title">07 / OPEN BOOK · LIVE BROKER POSITIONS</div>', unsafe_allow_html=True)
         if positions:
             rows = []
@@ -373,7 +437,7 @@ def main():
             st.info("No open positions in the paper account.")
         st.caption("Positions are read directly from the Alpaca paper account. This panel does not submit orders.")
 
-    with tabs[4]:
+    with tabs[5]:
         st.markdown('<div class="panel-title">08 / RISK ENGINE TELEMETRY</div>', unsafe_allow_html=True)
         r1, r2, r3 = st.columns(3)
         r1.metric("Daily loss breaker", "ARMED" if allowed else "TRIPPED", f"{day_pct:+.2f}% day")
