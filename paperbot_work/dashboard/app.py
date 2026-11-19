@@ -30,7 +30,7 @@ except Exception:
     pass
 
 from engine.config import ALL_SYMBOLS
-from engine.data import get_account, get_positions, get_bars
+from engine.data import get_account, get_positions, get_bars, get_recent_orders
 
 BG = "#080D16"
 PANEL = "#0D1522"
@@ -569,6 +569,94 @@ def safe_account_snapshot():
     return account, positions, heat, allowed, daily_pnl
 
 
+
+def render_trade_intelligence(positions):
+    """Desk blotter: broker order states, live position P&L, scan thesis and news evidence."""
+    st.markdown('<div class="panel-title">EXECUTION INTELLIGENCE · PAPER TRADE BLOTTER</div>', unsafe_allow_html=True)
+    try:
+        orders = get_recent_orders(limit=35)
+    except Exception as exc:
+        orders = []
+        st.warning(f"Broker order history unavailable: {exc}")
+    pos_by_symbol = dict(positions or {})
+    if orders:
+        rows = []
+        for order in orders:
+            symbol = order.get("symbol", "")
+            base = symbol.replace("/USD", "")
+            position = pos_by_symbol.get(symbol) or pos_by_symbol.get(base) or pos_by_symbol.get(base + "USD")
+            rows.append({
+                "TIME (UTC)": str(order.get("filled_at") or order.get("submitted_at") or "—")[:19],
+                "ASSET": symbol, "SIDE": order.get("side"), "ORDER STATUS": order.get("status"),
+                "ORDER QTY": order.get("qty"), "FILLED QTY": order.get("filled_qty"),
+                "AVG FILL": order.get("filled_avg_price") or None,
+                "MARK": float(position.current_price) if position else None,
+                "OPEN P&L": float(position.unrealized_pl) if position else None,
+                "P&L %": float(position.unrealized_plpc) * 100 if position else None,
+                "ORDER ID": order.get("id", "")[:12],
+            })
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True,
+            column_config={
+                "ORDER QTY": st.column_config.NumberColumn(format="%.6f"),
+                "FILLED QTY": st.column_config.NumberColumn(format="%.6f"),
+                "AVG FILL": st.column_config.NumberColumn(format="$%.4f"),
+                "MARK": st.column_config.NumberColumn(format="$%.4f"),
+                "OPEN P&L": st.column_config.NumberColumn(format="$%.2f"),
+                "P&L %": st.column_config.NumberColumn(format="%.2f%%"),
+            })
+        st.caption("Open P&L is the broker's unrealized P&L for a currently held asset. A dash means no matching open position; realized P&L for closed round trips is not reconstructed here.")
+    else:
+        st.info("No recent broker orders found. Orders appear here after Aurora submits them through the paper account.")
+
+    focus_symbol = orders[0].get("symbol") if orders else (next(iter(pos_by_symbol), None))
+    if focus_symbol:
+        st.markdown(f'<div class="panel-title">TRADE FOCUS · {focus_symbol} · LIVE MARKET CONTEXT</div>', unsafe_allow_html=True)
+        bars = get_bars(focus_symbol, "5Min", limit=120)
+        if bars is not None and not bars.empty:
+            fig, regime, indicators, adx, rsi, atr = aurora_candlestick_figure(
+                bars, focus_symbol, f"{focus_symbol} · 5-MINUTE TRADE CONTEXT")
+            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": True, "displaylogo": False})
+            st.caption(f"REGIME {regime} · INDICATORS {indicators} · ADX {adx:.1f} · RSI {rsi:.1f} · ATR {atr:.4f}")
+        else:
+            st.caption("No recent market bars returned for this trade focus.")
+
+    scan = st.session_state.get("orochi_scan", [])
+    if scan:
+        st.markdown('<div class="panel-title">AURORA DECISION BRIEF · SIGNAL EVIDENCE</div>', unsafe_allow_html=True)
+        decision_rows = []
+        for item in sorted(scan, key=lambda x: float(x.get("confluence", 0)), reverse=True)[:10]:
+            decision_rows.append({
+                "ASSET": item.get("symbol"), "SIGNAL": str(item.get("signal", "none")).upper(),
+                "CONFLUENCE": float(item.get("confluence", 0)),
+                "HTF BIAS": item.get("htf", {}).get("bias", "—"),
+                "NEWS SENTIMENT": float(item.get("sentiment", 0)),
+                "HEADLINES": int(item.get("news_count", 0)),
+                "DECISION / REASON": item.get("reason", ""),
+                "EXECUTION": item.get("execution_status", "ANALYSIS ONLY"),
+            })
+        st.dataframe(pd.DataFrame(decision_rows), use_container_width=True, hide_index=True)
+        headline_rows = []
+        for item in scan:
+            for headline in item.get("news_headlines", []):
+                headline_rows.append((item.get("symbol"), headline))
+        if headline_rows:
+            st.markdown('<div class="panel-title">NEWS READ BY AURORA · LAST SCAN</div>', unsafe_allow_html=True)
+            seen = set()
+            for symbol, headline in headline_rows[:12]:
+                title = headline.get("headline", "").strip()
+                url = headline.get("url", "")
+                key = (symbol, title)
+                if not title or key in seen:
+                    continue
+                seen.add(key)
+                source = headline.get("source", "News feed")
+                timestamp = headline.get("created_at") or "time unavailable"
+                st.markdown(f"**{symbol} · {source}** · {timestamp}\n\n" +
+                            (f"[{title}]({url})" if url else title))
+    else:
+        st.caption("Run a strategy scan or paper execution to populate Aurora's decision evidence and news panel.")
+
+
 def main():
     now = datetime.now(timezone.utc)
     st.markdown(f"""
@@ -642,6 +730,7 @@ def main():
 
     tabs = st.tabs(["DESK OVERVIEW", "MARKET ANALYTICS", "QUANT LAB / HEATMAPS", "MARKET FLOOR", "POSITIONS", "RISK & CONTROLS", "CRYPTO / KALSHI PREDICTIONS"])
     with tabs[0]:
+        render_trade_intelligence(positions)
         st.markdown('<div class="panel-title">SESSION P&L CONTROL · DAILY HARD LIMITS</div>', unsafe_allow_html=True)
         p1, p2, p3 = st.columns(3)
         p1.metric("SESSION P&L", fmt_money(day_change), f"{day_pct:+.2f}% vs prior close")
@@ -717,7 +806,8 @@ def main():
                 "CONFLUENCE": round(float(x.get("confluence", 0)), 3),
                 "HTF BIAS": x.get("htf", {}).get("bias", "—"),
                 "REGIME": x.get("htf", {}).get("regime", "—"),
-                "SENTIMENT": x.get("sentiment", 0), "MODEL NOTE": x.get("reason", "")
+                "NEWS SENTIMENT": x.get("sentiment", 0), "HEADLINES": x.get("news_count", 0),
+                "MODEL NOTE": x.get("reason", ""), "EXECUTION": x.get("execution_status", "ANALYSIS ONLY")
             } for x in sorted(results, key=lambda z: z.get("confluence", 0), reverse=True)])
             st.dataframe(scan_df, use_container_width=True, hide_index=True)
             st.caption("Last scan: " + st.session_state.get("orochi_scan_time", "—") + " · Scanner results are analysis, not guaranteed trade signals.")
