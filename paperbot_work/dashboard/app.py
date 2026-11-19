@@ -100,6 +100,111 @@ def chart_layout(fig, height=320):
     return fig
 
 
+def aurora_indicators(bars):
+    """Calculate chart indicators without third-party TA dependencies."""
+    data = bars.copy()
+    close = pd.to_numeric(data["close"], errors="coerce")
+    high = pd.to_numeric(data["high"], errors="coerce")
+    low = pd.to_numeric(data["low"], errors="coerce")
+    volume = pd.to_numeric(data["volume"], errors="coerce").fillna(0)
+    data["EMA9"] = close.ewm(span=9, adjust=False).mean()
+    data["EMA21"] = close.ewm(span=21, adjust=False).mean()
+    data["EMA50"] = close.ewm(span=50, adjust=False).mean()
+    delta = close.diff()
+    gain = delta.clip(lower=0).ewm(alpha=1/14, adjust=False, min_periods=14).mean()
+    loss = (-delta.clip(upper=0)).ewm(alpha=1/14, adjust=False, min_periods=14).mean()
+    rs = gain / loss.replace(0, float("nan"))
+    data["RSI14"] = 100 - (100 / (1 + rs))
+    data["RSI14"] = data["RSI14"].fillna(50)
+    data["MACD"] = close.ewm(span=12, adjust=False).mean() - close.ewm(span=26, adjust=False).mean()
+    data["MACD_SIGNAL"] = data["MACD"].ewm(span=9, adjust=False).mean()
+    data["MACD_HIST"] = data["MACD"] - data["MACD_SIGNAL"]
+    typical = (high + low + close) / 3
+    cumulative_volume = volume.cumsum().replace(0, float("nan"))
+    data["VWAP"] = ((typical * volume).cumsum() / cumulative_volume).fillna(close)
+    data["BB_MID"] = close.rolling(20, min_periods=10).mean()
+    bb_std = close.rolling(20, min_periods=10).std()
+    data["BB_UPPER"] = data["BB_MID"] + 2 * bb_std
+    data["BB_LOWER"] = data["BB_MID"] - 2 * bb_std
+    previous_close = close.shift(1)
+    true_range = pd.concat([high - low, (high - previous_close).abs(),
+                             (low - previous_close).abs()], axis=1).max(axis=1)
+    data["ATR14"] = true_range.ewm(alpha=1/14, adjust=False, min_periods=14).mean()
+    up_move = high.diff()
+    down_move = -low.diff()
+    plus_dm = up_move.where((up_move > down_move) & (up_move > 0), 0.0)
+    minus_dm = down_move.where((down_move > up_move) & (down_move > 0), 0.0)
+    atr_smooth = true_range.ewm(alpha=1/14, adjust=False, min_periods=14).mean()
+    plus_di = 100 * plus_dm.ewm(alpha=1/14, adjust=False, min_periods=14).mean() / atr_smooth.replace(0, float("nan"))
+    minus_di = 100 * minus_dm.ewm(alpha=1/14, adjust=False, min_periods=14).mean() / atr_smooth.replace(0, float("nan"))
+    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, float("nan"))
+    data["ADX14"] = dx.ewm(alpha=1/14, adjust=False, min_periods=14).mean()
+    return data
+
+
+def aurora_candlestick_figure(bars, symbol, title):
+    """Adaptive TradingView-style chart: Aurora selects overlays from measured regime."""
+    data = aurora_indicators(bars)
+    latest = data.iloc[-1]
+    adx = float(latest["ADX14"]) if pd.notna(latest["ADX14"]) else 0.0
+    ema_spread = abs(float(latest["EMA9"]) - float(latest["EMA21"])) / max(abs(float(latest["close"])), 1e-9)
+    trending = adx >= 23 or ema_spread >= 0.002
+    regime = "TRENDING" if trending else "RANGE / MEAN-REVERSION"
+    selected = "EMA 9/21/50 + MACD" if trending else "Bollinger Bands + RSI"
+    fig = make_subplots(rows=4, cols=1, shared_xaxes=True, vertical_spacing=.025,
+                        row_heights=[.56, .16, .14, .14],
+                        subplot_titles=("PRICE / AURORA OVERLAYS", "RSI 14", "MACD 12·26·9", "VOLUME"))
+    fig.add_trace(go.Candlestick(
+        x=data["time"], open=data["open"], high=data["high"], low=data["low"],
+        close=data["close"], name=symbol, increasing_line_color=GREEN,
+        decreasing_line_color=RED, increasing_fillcolor=GREEN,
+        decreasing_fillcolor=RED,
+    ), row=1, col=1)
+    if trending:
+        for column, color, label in (
+            ("EMA9", "#F2C14E", "EMA 9"),
+            ("EMA21", "#35C8E8", "EMA 21"),
+            ("EMA50", "#B58CFF", "EMA 50"),
+        ):
+            fig.add_trace(go.Scatter(x=data["time"], y=data[column], mode="lines",
+                name=label, line=dict(color=color, width=1.25)), row=1, col=1)
+    else:
+        fig.add_trace(go.Scatter(x=data["time"], y=data["BB_UPPER"], mode="lines",
+            name="Bollinger upper", line=dict(color="#B58CFF", width=1, dash="dot")), row=1, col=1)
+        fig.add_trace(go.Scatter(x=data["time"], y=data["BB_LOWER"], mode="lines",
+            name="Bollinger lower", line=dict(color="#B58CFF", width=1, dash="dot"),
+            fill="tonexty", fillcolor="rgba(181,140,255,.07)"), row=1, col=1)
+        fig.add_trace(go.Scatter(x=data["time"], y=data["BB_MID"], mode="lines",
+            name="Bollinger basis", line=dict(color="#B58CFF", width=1)), row=1, col=1)
+    fig.add_trace(go.Scatter(x=data["time"], y=data["VWAP"], mode="lines",
+        name="VWAP", line=dict(color=AMBER, width=1.4, dash="dash")), row=1, col=1)
+    fig.add_trace(go.Scatter(x=data["time"], y=data["RSI14"], mode="lines",
+        name="RSI 14", line=dict(color="#B58CFF", width=1.5)), row=2, col=1)
+    fig.add_hline(y=70, line_dash="dot", line_color=RED, opacity=.65, row=2, col=1)
+    fig.add_hline(y=30, line_dash="dot", line_color=GREEN, opacity=.65, row=2, col=1)
+    fig.add_trace(go.Bar(x=data["time"], y=data["MACD_HIST"], name="MACD histogram",
+        marker_color=[GREEN if value >= 0 else RED for value in data["MACD_HIST"].fillna(0)]), row=3, col=1)
+    fig.add_trace(go.Scatter(x=data["time"], y=data["MACD"], mode="lines",
+        name="MACD", line=dict(color=CYAN, width=1.2)), row=3, col=1)
+    fig.add_trace(go.Scatter(x=data["time"], y=data["MACD_SIGNAL"], mode="lines",
+        name="MACD signal", line=dict(color=AMBER, width=1.1)), row=3, col=1)
+    fig.add_trace(go.Bar(x=data["time"], y=data["volume"], name="Volume",
+        marker_color="rgba(53,200,232,.42)"), row=4, col=1)
+    fig.update_layout(
+        title=title, height=760, paper_bgcolor=PANEL, plot_bgcolor=PANEL,
+        font=dict(color=MUTED, family="IBM Plex Mono, monospace", size=9),
+        margin=dict(l=12, r=12, t=55, b=12), xaxis_rangeslider_visible=False,
+        hovermode="x unified", legend=dict(orientation="h", y=1.04, x=0),
+    )
+    for axis in ("xaxis", "xaxis2", "xaxis3", "xaxis4"):
+        fig.update_layout(**{axis: dict(showgrid=False, color=MUTED)})
+    for axis in ("yaxis", "yaxis2", "yaxis3", "yaxis4"):
+        fig.update_layout(**{axis: dict(showgrid=True, gridcolor=GRID, color=MUTED)})
+    fig.update_yaxes(range=[0, 100], row=2, col=1)
+    fig.update_layout(xaxis_rangeslider_visible=False)
+    return fig, regime, selected, adx, float(latest["RSI14"]), float(latest["ATR14"]) if pd.notna(latest["ATR14"]) else 0.0
+
+
 @st.cache_data(ttl=300)
 def get_equity_history():
     """Fetch broker-sourced equity history; return None if endpoint/data unavailable."""
@@ -282,29 +387,11 @@ def render_market_floor():
         if candle_bars.empty:
             st.warning(f"No one-minute OHLC bars returned for {candle_symbol}.")
         else:
-            candle_fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=.035,
-                                       row_heights=[.78, .22])
-            candle_fig.add_trace(go.Candlestick(
-                x=candle_bars["time"], open=candle_bars["open"], high=candle_bars["high"],
-                low=candle_bars["low"], close=candle_bars["close"], name=candle_symbol,
-                increasing_line_color=GREEN, decreasing_line_color=RED,
-                increasing_fillcolor=GREEN, decreasing_fillcolor=RED,
-            ), row=1, col=1)
-            candle_fig.add_trace(go.Bar(
-                x=candle_bars["time"], y=candle_bars["volume"], name="Volume",
-                marker_color="rgba(53,200,232,.45)",
-            ), row=2, col=1)
-            candle_fig.update_layout(
-                title=f"{candle_symbol} · LAST 60 ONE-MINUTE CANDLES",
-                height=470, paper_bgcolor=PANEL, plot_bgcolor=PANEL,
-                font=dict(color=MUTED, family="IBM Plex Mono, monospace", size=10),
-                margin=dict(l=12, r=12, t=42, b=12), xaxis_rangeslider_visible=False,
-                showlegend=False, hovermode="x unified",
-            )
-            candle_fig.update_xaxes(showgrid=False, gridcolor=GRID)
-            candle_fig.update_yaxes(showgrid=True, gridcolor=GRID)
+            candle_fig, regime, selected_indicators, adx, rsi, atr = aurora_candlestick_figure(
+                candle_bars, candle_symbol, f"{candle_symbol} · 60 × 1-MINUTE CANDLES")
             st.plotly_chart(candle_fig, use_container_width=True,
                             config={"displayModeBar": True, "displaylogo": False})
+            st.caption(f"AURORA REGIME: {regime} · AUTO-SELECTED: {selected_indicators} · ADX {adx:.1f} · RSI {rsi:.1f} · ATR {atr:.4f}")
         st.caption("Latest bar timestamps are UTC. When the market is closed, timestamps and prices will be stale until the next session.")
     if unavailable:
         st.caption("No recent bar returned for: " + ", ".join(unavailable))
@@ -422,11 +509,10 @@ def render_crypto_kalshi_tracker():
         selected = st.selectbox("Crypto chart", crypto_symbols, key="kalshi_crypto_chart")
         chart_bars = price_frames.get(selected)
         if chart_bars is not None and not chart_bars.empty:
-            fig = go.Figure(go.Scatter(x=chart_bars["time"], y=chart_bars["close"], mode="lines",
-                line={"color": CYAN, "width": 2}, name=selected))
-            chart_layout(fig, 300)
-            fig.update_layout(title=f"{selected} · LAST 60 ONE-MINUTE BARS")
-            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+            fig, regime, selected_indicators, adx, rsi, atr = aurora_candlestick_figure(
+                chart_bars, selected, f"{selected} · 60 × 1-MINUTE CANDLES")
+            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": True, "displaylogo": False})
+            st.caption(f"AURORA REGIME: {regime} · AUTO-SELECTED: {selected_indicators} · ADX {adx:.1f} · RSI {rsi:.1f} · ATR {atr:.4f}")
         st.caption("Signal labels describe the Kalshi contract's YES/NO pricing only. They are not a standalone buy/sell recommendation. YES probability uses the bid/ask midpoint where available, otherwise the last traded YES price or bid.")
     else:
         st.warning("No open crypto contracts were found in the configured Kalshi series. Series availability can change; this panel will retry on its next refresh.")
@@ -574,15 +660,10 @@ def main():
         st.markdown(f'<div class="panel-title">05 / {selected_symbol} · {timeframe} MARKET STRUCTURE</div>', unsafe_allow_html=True)
         bars = get_bars(selected_symbol, timeframe, limit=180)
         if bars is not None and not bars.empty:
-            fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=.04, row_heights=[.75, .25])
-            fig.add_trace(go.Candlestick(x=bars["time"], open=bars["open"], high=bars["high"], low=bars["low"], close=bars["close"],
-                name=selected_symbol, increasing_line_color=GREEN, decreasing_line_color=RED), row=1, col=1)
-            fig.add_trace(go.Bar(x=bars["time"], y=bars["volume"], name="Volume", marker_color="rgba(53,200,232,.45)"), row=2, col=1)
-            fig.update_layout(height=560, paper_bgcolor=PANEL, plot_bgcolor=PANEL, font=dict(color=MUTED, family="IBM Plex Mono"),
-                margin=dict(l=10,r=10,t=15,b=10), xaxis_rangeslider_visible=False, showlegend=False)
-            fig.update_xaxes(gridcolor=GRID)
-            fig.update_yaxes(gridcolor=GRID)
+            fig, regime, selected_indicators, adx, rsi, atr = aurora_candlestick_figure(
+                bars, selected_symbol, f"{selected_symbol} · {timeframe} · AURORA TECHNICAL MAP")
             st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": True, "displaylogo": False})
+            st.caption(f"AURORA REGIME: {regime} · AUTO-SELECTED: {selected_indicators} · ADX {adx:.1f} · RSI {rsi:.1f} · ATR {atr:.4f}")
             latest = bars.iloc[-1]
             quote_cols = st.columns(4)
             quote_cols[0].metric("Last close", fmt_money(latest["close"]))
