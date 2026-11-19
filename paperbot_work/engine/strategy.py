@@ -114,11 +114,9 @@ def run_daily_scan(symbols: Optional[list] = None, execute: bool = False, max_ne
         pos_key = symbol if symbol in positions else symbol.replace('/USD', '')
         has_pos = pos_key in positions
         if analysis['signal'] == 'short':
-            if has_pos and float(positions[pos_key].qty) > 0:
-                closed = close_position(pos_key)
-                analysis['execution_status'] = 'PAPER CLOSE SUBMITTED' if closed else 'PAPER CLOSE FAILED'
-            else:
-                analysis['execution_status'] = 'NO NEW SHORT — short entries disabled'
+            # Positions are not yet tagged with AURORA ownership. Never close a
+            # broker-account position from a bearish signal until ownership exists.
+            analysis['execution_status'] = 'NO CLOSE — position ownership is not verified'
             continue
         if has_pos:
             analysis['execution_status'] = 'SKIPPED — position already open'
