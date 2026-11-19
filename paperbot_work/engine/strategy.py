@@ -81,7 +81,7 @@ def run_daily_scan(symbols: Optional[list] = None, execute: bool = False, max_ne
     print(f"\n{'='*60}\nOROCHI + ICT SCAN | {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC")
     print(f"Equity: ${heat['equity']:,.2f} | Daily PnL: {daily_pnl*100:.2f}% | Exposure: {heat['heat_pct']*100:.1f}%\n{'='*60}")
     if execute and not allowed:
-        print('BLOCKED: daily loss limit reached or risk check unavailable; no orders sent.')
+        print('BLOCKED: daily P&L limit reached or risk check unavailable; no orders sent.')
         return results
     positions = get_positions() if execute else {}
     new_entries = 0
