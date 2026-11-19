@@ -5,6 +5,15 @@ on:
     # Every 5 minutes, every day. The worker gates stock scans to market hours.
     - cron: "*/5 * * * *"
   workflow_dispatch:
+    inputs:
+      action:
+        description: "Choose a normal strategy cycle or the isolated one-time SOL test"
+        required: true
+        type: choice
+        default: normal_cycle
+        options:
+          - normal_cycle
+          - one_time_sol_test
 
 permissions:
   contents: read
@@ -33,5 +42,11 @@ jobs:
           cache-dependency-path: paperbot_work/requirements.txt
       - name: Install dependencies
         run: python -m pip install -r paperbot_work/requirements.txt
-      - name: Run one paper-trading cycle
+      - name: Submit one-time SOL/USD paper test
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'one_time_sol_test' }}
+        env:
+          AURORA_ONE_TIME_TEST: "true"
+        run: python paperbot_work/one_time_sol_test.py
+      - name: Run one normal paper-trading cycle
+        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.action == 'normal_cycle') }}
         run: python paperbot_work/auto_trader.py --once
