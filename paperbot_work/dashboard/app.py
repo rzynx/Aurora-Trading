@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 st.set_page_config(
-    page_title="OROCHI | Quant Terminal",
+    page_title="AURORA TRADING | Quant Terminal",
     page_icon="◈",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -409,7 +409,7 @@ def main():
     now = datetime.now(timezone.utc)
     st.markdown(f"""
     <div class="terminal-top">
-      <div><div class="brand"><span>◈</span> OROCHI <span style="color:#8292A8;font-weight:500">QUANT TERMINAL</span></div>
+      <div><div class="brand"><span>◈</span> AURORA <span style="color:#8292A8;font-weight:500">QUANT TERMINAL</span></div>
       <div class="subbrand">SYSTEMATIC STRATEGIES · EXECUTION MONITOR · RISK CONTROL</div></div>
       <div style="text-align:right"><div class="status">● PAPER BROKER LINK</div>
       <div class="micro">{now.strftime('%d %b %Y  %H:%M:%S')} UTC</div></div>
@@ -418,7 +418,7 @@ def main():
 
     with st.sidebar:
         st.markdown("## ◈ CONTROL")
-        st.caption("OROCHI / PAPER ENVIRONMENT")
+        st.caption("AURORA / PAPER ENVIRONMENT")
         workspace = st.radio("WORKSPACE", ["TRADING DESK", "P&L CALENDAR"], key="orochi_workspace")
         st.divider()
         refresh_seconds = st.selectbox("Refresh interval", ["Manual", "30 seconds", "60 seconds"], index=0)
@@ -659,7 +659,7 @@ def main():
         st.warning("Important: the current automated exit monitor checks positions periodically; it is not a guaranteed broker-hosted stop-loss. Do not treat this paper system as production-ready or connect live funds.")
 
     st.markdown("---")
-    st.caption(f"OROCHI QUANT TERMINAL · PAPER TRADING ONLY · DATA SNAPSHOT {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')} · NOT FINANCIAL ADVICE")
+    st.caption(f"AURORA TRADING · PAPER ENVIRONMENT · DATA SNAPSHOT {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')} · NOT FINANCIAL ADVICE")
 
 
 if __name__ == "__main__":
