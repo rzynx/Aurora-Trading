@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+import numpy as np
 from plotly.subplots import make_subplots
 from dotenv import load_dotenv
 
@@ -376,6 +377,21 @@ def load_market_floor_candles(symbol):
         return pd.DataFrame()
     return bars.copy()
 
+
+def smooth_surface_grid(grid, strike_points=100, dte_points=60):
+    """Densify a sparse option surface by linear interpolation; retain observed nodes."""
+    grid = grid.copy().apply(pd.to_numeric, errors="coerce")
+    grid = grid.sort_index().sort_index(axis=1)
+    grid = grid.loc[~grid.index.duplicated(keep="last"), ~grid.columns.duplicated(keep="last")]
+    if grid.empty or len(grid.index) < 2 or len(grid.columns) < 2:
+        return grid
+    dense_dte = np.linspace(float(grid.index.min()), float(grid.index.max()), min(dte_points, max(2, len(grid.index) * 5)))
+    dense_strikes = np.linspace(float(grid.columns.min()), float(grid.columns.max()), min(strike_points, max(2, len(grid.columns) * 5)))
+    dense = grid.reindex(index=sorted(set(grid.index.astype(float).tolist() + dense_dte.tolist())),
+                         columns=sorted(set(grid.columns.astype(float).tolist() + dense_strikes.tolist())))
+    dense = dense.interpolate(method="index", axis=1, limit_area="inside")
+    dense = dense.interpolate(method="index", axis=0, limit_area="inside")
+    return dense.reindex(index=dense_dte, columns=dense_strikes)
 
 def render_market_floor_ticker():
     """One-second polled latest-trade ticker; direction is relative to the prior poll."""
@@ -1199,23 +1215,23 @@ def main():
                 else:
                     fresh_quotes = int(options["bid"].notna().sum() + options["ask"].notna().sum())
                     st.caption(f"{len(options):,} contracts returned · {fresh_quotes:,} bid/ask fields populated · indicative feed")
-                    iv_grid = options.pivot_table(index="dte", columns="strike", values="iv", aggfunc="median")
+                    iv_grid = smooth_surface_grid(options.pivot_table(index="dte", columns="strike", values="iv", aggfunc="median"))
                     iv_fig = go.Figure(data=[go.Surface(
                         x=iv_grid.columns.astype(float), y=iv_grid.index.astype(float), z=iv_grid.to_numpy(),
-                        colorscale="Turbo", colorbar={"title": "IV %"},
+                        colorscale="Turbo", connectgaps=True, colorbar={"title": "IV %"}, lighting={"ambient":0.72,"diffuse":0.85,"specular":0.18,"roughness":0.82,"fresnel":0.08},
                         hovertemplate="Strike: %{x:.2f}<br>DTE: %{y:.0f}<br>IV: %{z:.2f}%<extra></extra>"
                     )])
                     iv_fig.update_layout(title="IMPLIED VOLATILITY SURFACE · STRIKE × DTE × IV",
                         height=620, paper_bgcolor=PANEL, plot_bgcolor=PANEL,
                         font={"family":"IBM Plex Mono, monospace","color":MUTED,"size":10},
                         scene={"xaxis_title":"Strike price ($)","yaxis_title":"Days to expiry","zaxis_title":"Implied volatility (%)",
-                               "bgcolor":PANEL, "xaxis":{"gridcolor":GRID}, "yaxis":{"gridcolor":GRID}, "zaxis":{"gridcolor":GRID}},
+                               "bgcolor":PANEL, "aspectmode":"manual", "aspectratio":{"x":1.45,"y":0.8,"z":0.62}, "camera":{"eye":{"x":1.55,"y":1.55,"z":0.9}}, "xaxis":{"gridcolor":GRID}, "yaxis":{"gridcolor":GRID}, "zaxis":{"gridcolor":GRID}},
                         margin={"l":0,"r":0,"t":50,"b":0})
                     st.plotly_chart(iv_fig, use_container_width=True, config={"displayModeBar":True,"displaylogo":False})
-                    liq_grid = options.pivot_table(index="dte", columns="strike", values="liquidity_proxy", aggfunc="sum")
+                    liq_grid = smooth_surface_grid(options.pivot_table(index="dte", columns="strike", values="liquidity_proxy", aggfunc="sum"))
                     liq_fig = go.Figure(data=[go.Surface(
                         x=liq_grid.columns.astype(float), y=liq_grid.index.astype(float), z=liq_grid.to_numpy(),
-                        colorscale="Viridis", colorbar={"title":"Liquidity proxy"},
+                        colorscale="Viridis", connectgaps=True, colorbar={"title":"Liquidity proxy"}, lighting={"ambient":0.72,"diffuse":0.85,"specular":0.18,"roughness":0.82,"fresnel":0.08},
                         hovertemplate="Strike: %{x:.2f}<br>DTE: %{y:.0f}<br>Proxy: %{z:,.1f}<extra></extra>"
                     )])
                     liq_fig.update_layout(title="DISPLAYED LIQUIDITY PROXY · STRIKE × DTE",
