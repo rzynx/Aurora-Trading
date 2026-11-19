@@ -81,23 +81,90 @@ def get_bars(symbol, timeframe='15Min', limit=200):
 
 
 def get_news(symbols, hours=18):
-    try:
-        from alpaca.data.historical.news import NewsClient
-        from alpaca.data.requests import NewsRequest
-        key, secret = _credentials()
-        client = NewsClient(key, secret)
-        stock_symbols = [s for s in symbols if '/' not in s]
-        if not stock_symbols:
-            return []
-        req = NewsRequest(symbols=stock_symbols[:5], start=datetime.now(timezone.utc)-timedelta(hours=hours), limit=30)
-        response = client.get_news(req)
-        payload = getattr(response, 'data', response)
-        items = payload.get('news', []) if isinstance(payload, dict) else payload
-        return [{'headline': n.headline or '', 'summary': getattr(n, 'summary', '') or '',
-                 'created_at': n.created_at, 'symbols': n.symbols or [], 'url': n.url} for n in items]
-    except Exception as exc:
-        print(f'[data] News error: {exc}')
-        return []
+    """Fetch symbol-relevant headlines: Alpaca for equities, Google News RSS for crypto/fallback."""
+    import xml.etree.ElementTree as ET
+    import requests
+    found = []
+    stock_symbols = [sym for sym in symbols if '/' not in sym]
+    if stock_symbols:
+        try:
+            from alpaca.data.historical.news import NewsClient
+            from alpaca.data.requests import NewsRequest
+            key, secret = _credentials()
+            client = NewsClient(key, secret)
+            req = NewsRequest(symbols=stock_symbols[:5], start=datetime.now(timezone.utc)-timedelta(hours=hours), limit=30)
+            response = client.get_news(req)
+            payload = getattr(response, 'data', response)
+            items = payload.get('news', []) if isinstance(payload, dict) else payload
+            for n in items:
+                found.append({'headline': n.headline or '', 'summary': getattr(n, 'summary', '') or '',
+                    'created_at': n.created_at, 'symbols': n.symbols or [], 'url': n.url, 'source': 'Alpaca News'})
+        except Exception as exc:
+            print(f'[data] Alpaca news unavailable: {exc}')
+    queries = []
+    for sym in symbols:
+        if '/' in sym:
+            queries.append((sym, f'{sym.split("/")[0]} cryptocurrency market'))
+        elif not any(sym in item.get('symbols', []) for item in found):
+            queries.append((sym, f'{sym} stock market'))
+    cutoff = datetime.now(timezone.utc)-timedelta(hours=hours)
+    for sym, query in queries[:5]:
+        try:
+            response = requests.get('https://news.google.com/rss/search',
+                params={'q': query, 'hl': 'en-US', 'gl': 'US', 'ceid': 'US:en'},
+                timeout=8, headers={'User-Agent': 'AuroraPaperResearch/1.0'})
+            response.raise_for_status()
+            root = ET.fromstring(response.content)
+            for item in root.findall('./channel/item')[:8]:
+                published = None
+                pub = item.findtext('pubDate')
+                if pub:
+                    try:
+                        from email.utils import parsedate_to_datetime
+                        published = parsedate_to_datetime(pub).astimezone(timezone.utc)
+                    except Exception:
+                        pass
+                if published and published < cutoff:
+                    continue
+                found.append({'headline': item.findtext('title') or '',
+                    'summary': item.findtext('description') or '', 'created_at': published,
+                    'symbols': [sym], 'url': item.findtext('link') or '', 'source': 'Google News RSS'})
+        except Exception as exc:
+            print(f'[data] RSS news unavailable for {sym}: {exc}')
+    unique, seen = [], set()
+    for item in found:
+        key = item.get('url') or item.get('headline')
+        if key and key not in seen:
+            seen.add(key)
+            unique.append(item)
+    unique.sort(key=lambda x: x.get('created_at') or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+    return unique[:30]
+
+
+def get_recent_orders(limit=40):
+    """Return recent paper orders with broker status and fill details."""
+    from alpaca.trading.requests import GetOrdersRequest
+    from alpaca.trading.enums import QueryOrderStatus
+    client = _clients()[0]
+    request = GetOrdersRequest(status=QueryOrderStatus.ALL, limit=limit, nested=True)
+    orders = client.get_orders(filter=request)
+    rows = []
+    for order in orders:
+        side = getattr(order, 'side', '')
+        status = getattr(order, 'status', '')
+        rows.append({
+            'id': str(getattr(order, 'id', '')),
+            'symbol': str(getattr(order, 'symbol', '')),
+            'side': str(getattr(side, 'value', side)).upper(),
+            'qty': float(getattr(order, 'qty', 0) or 0),
+            'filled_qty': float(getattr(order, 'filled_qty', 0) or 0),
+            'filled_avg_price': float(getattr(order, 'filled_avg_price', 0) or 0),
+            'status': str(getattr(status, 'value', status)).upper(),
+            'submitted_at': getattr(order, 'submitted_at', None),
+            'filled_at': getattr(order, 'filled_at', None),
+        })
+    rows.sort(key=lambda x: x.get('submitted_at') or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+    return rows
 
 
 def submit_market_order(symbol, qty, side):
