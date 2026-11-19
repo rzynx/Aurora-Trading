@@ -3,6 +3,7 @@ import os
 from datetime import datetime, timedelta, timezone
 import pandas as pd
 from dotenv import load_dotenv
+from .config import CRYPTO_SYMBOLS
 
 load_dotenv()
 
@@ -48,18 +49,21 @@ def get_bars(symbol, timeframe='15Min', limit=200):
         _, stock_client, crypto_client = _clients()
         end = datetime.now(timezone.utc)
         start = end - timedelta(days=30 if timeframe in ('1Hour', '1Day') else 14)
-        if '/' in symbol:
-            req = CryptoBarsRequest(symbol_or_symbols=[symbol], timeframe=_tf(timeframe), start=start, end=end, limit=limit)
+        crypto_map = {item.replace('/', ''): item for item in CRYPTO_SYMBOLS}
+        query_symbol = symbol if '/' in symbol else crypto_map.get(symbol, symbol)
+        is_crypto = query_symbol in CRYPTO_SYMBOLS
+        if is_crypto:
+            req = CryptoBarsRequest(symbol_or_symbols=[query_symbol], timeframe=_tf(timeframe), start=start, end=end, limit=limit)
             frame = crypto_client.get_crypto_bars(req).df
         else:
-            req = StockBarsRequest(symbol_or_symbols=[symbol], timeframe=_tf(timeframe), start=start, end=end,
+            req = StockBarsRequest(symbol_or_symbols=[query_symbol], timeframe=_tf(timeframe), start=start, end=end,
                                    limit=limit, feed=DataFeed.IEX)
             frame = stock_client.get_stock_bars(req).df
         if frame is None or frame.empty:
             return pd.DataFrame()
         if isinstance(frame.index, pd.MultiIndex):
             try:
-                frame = frame.xs(symbol, level='symbol')
+                frame = frame.xs(query_symbol, level='symbol')
             except (KeyError, ValueError):
                 return pd.DataFrame()
         frame = frame.reset_index()
