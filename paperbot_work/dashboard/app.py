@@ -578,7 +578,10 @@ def render_trade_intelligence(positions):
     except Exception as exc:
         orders = []
         st.warning(f"Broker order history unavailable: {exc}")
-    pos_by_symbol = dict(positions or {})
+    try:
+        pos_by_symbol = get_positions()
+    except Exception:
+        pos_by_symbol = dict(positions or {})
     if orders:
         rows = []
         for order in orders:
@@ -730,7 +733,10 @@ def main():
 
     tabs = st.tabs(["DESK OVERVIEW", "MARKET ANALYTICS", "QUANT LAB / HEATMAPS", "MARKET FLOOR", "POSITIONS", "RISK & CONTROLS", "CRYPTO / KALSHI PREDICTIONS"])
     with tabs[0]:
-        render_trade_intelligence(positions)
+        @st.fragment(run_every="30s")
+        def trade_intelligence_fragment():
+            render_trade_intelligence(positions)
+        trade_intelligence_fragment()
         st.markdown('<div class="panel-title">SESSION P&L CONTROL · DAILY HARD LIMITS</div>', unsafe_allow_html=True)
         p1, p2, p3 = st.columns(3)
         p1.metric("SESSION P&L", fmt_money(day_change), f"{day_pct:+.2f}% vs prior close")
