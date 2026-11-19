@@ -14,7 +14,7 @@ SWING_TRADING = [
     ("Review", "Log the thesis, chart context, catalyst, planned and actual prices, R-multiple, slippage, and rule adherence. Evaluate a meaningful sample after costs; one winning trade proves little."),
 ]
 
-INVESTING = [
+LONG_TERM_INVESTING = [
     ("Ownership mindset", "Investing means owning a diversified basket of productive assets over years, not reacting to every price tick. Separate the business or asset thesis from short-term market noise."),
     ("Business quality", "For a company, study revenue durability, margins, free cash flow, return on invested capital, competitive advantages, customer concentration, and management's capital allocation."),
     ("Balance sheet and resilience", "Review cash, debt maturities, interest expense, liquidity, dilution, and the ability to survive a downturn. A popular company can still be a poor investment at an excessive price."),
