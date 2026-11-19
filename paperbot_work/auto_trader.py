@@ -85,7 +85,7 @@ def run_auto_cycle(force=False):
     manage_exits()
     allowed, daily_pnl = check_daily_loss_limit()
     if not allowed:
-        log(f"DAILY LOSS CIRCUIT BREAKER: {daily_pnl * 100:.2f}%; no new entries")
+        log(f"DAILY P&L LIMIT LOCK: {daily_pnl * 100:.2f}%; no new entries")
         return True
 
     heat = portfolio_heat()
