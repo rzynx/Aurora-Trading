@@ -118,66 +118,83 @@ def get_equity_history():
 
 
 def get_daily_pnl_history():
-    """Return daily changes in Alpaca's cumulative daily P&L history."""
+    """Fetch broker-reported daily profit/loss observations from Alpaca."""
     try:
         from alpaca.trading.requests import GetPortfolioHistoryRequest
         client = __import__('engine.data', fromlist=['_clients'])._clients()[0]
-        h = client.get_portfolio_history(GetPortfolioHistoryRequest(period='1A', timeframe='1D'))
-        ts, pnl = getattr(h, 'timestamp', []) or [], getattr(h, 'profit_loss', []) or []
-        if not ts or len(ts) != len(pnl):
+        history = client.get_portfolio_history(GetPortfolioHistoryRequest(period='1A', timeframe='1D'))
+        timestamps = getattr(history, 'timestamp', None) or []
+        profits = getattr(history, 'profit_loss', None) or []
+        if not timestamps or len(timestamps) != len(profits):
             return pd.DataFrame(columns=['date', 'pnl'])
-        df = pd.DataFrame({'date': pd.to_datetime(ts, unit='s', utc=True).tz_convert('America/New_York').date, 'cum': pd.to_numeric(pnl, errors='coerce')}).dropna().sort_values('date')
-        df['pnl'] = df['cum'].diff()
-        if len(df): df.loc[df.index[0], 'pnl'] = df.iloc[0]['cum']
-        return df[['date', 'pnl']].groupby('date', as_index=False)['pnl'].sum()
+        frame = pd.DataFrame({
+            'date': pd.to_datetime(timestamps, unit='s', utc=True).tz_convert('America/New_York').date,
+            'pnl': pd.to_numeric(profits, errors='coerce'),
+        }).dropna().sort_values('date')
+        return frame.groupby('date', as_index=False)['pnl'].sum()
     except Exception as exc:
         print('[dashboard] Daily P&L history unavailable:', exc)
         return pd.DataFrame(columns=['date', 'pnl'])
+
 
 def render_pnl_calendar():
     st.markdown('### DAILY P&L CALENDAR')
     st.caption('Green = profitable session · red = losing session · blank = no reported P&L.')
     frame = get_daily_pnl_history()
     if frame.empty:
-        st.warning('Alpaca has not returned enough daily history to build the calendar yet.')
+        st.warning('Alpaca has not returned daily portfolio history for this account yet.')
         return
-    values = {r['date']: float(r['pnl']) for _, r in frame.iterrows()}
+    values = {row['date']: float(row['pnl']) for _, row in frame.iterrows()}
     chosen = st.date_input('Choose month', value=date.today().replace(day=1), key='orochi_pnl_month')
-    y, m = chosen.year, chosen.month
-    monthly = sum(v for d, v in values.items() if d.year == y and d.month == m)
-    good = sum(1 for d, v in values.items() if d.year == y and d.month == m and v > 0)
-    bad = sum(1 for d, v in values.items() if d.year == y and d.month == m and v < 0)
+    year, month = chosen.year, chosen.month
+    monthly = sum(v for d, v in values.items() if d.year == year and d.month == month)
+    profitable = sum(1 for d, v in values.items() if d.year == year and d.month == month and v > 0.005)
+    losing = sum(1 for d, v in values.items() if d.year == year and d.month == month and v < -0.005)
     a, b, c = st.columns(3)
-    a.metric('MONTHLY P&L', fmt_money(monthly), str(good) + ' green · ' + str(bad) + ' red sessions')
-    b.metric('PROFITABLE DAYS', good)
-    c.metric('LOSING DAYS', bad)
-    st.markdown('### ' + calendar.month_name[m] + ' ' + str(y))
+    a.metric('MONTHLY P&L', fmt_money(monthly), f'{profitable} green · {losing} red sessions')
+    b.metric('PROFITABLE DAYS', profitable)
+    c.metric('LOSING DAYS', losing)
+    st.markdown('### ' + calendar.month_name[month] + ' ' + str(year))
     labels = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
-    for col, label in zip(st.columns(7), labels): col.markdown('**' + label + '**')
-    for week in calendar.monthcalendar(y, m):
+    header = st.columns(7)
+    for col, label in zip(header, labels):
+        col.markdown('**' + label + '**')
+    for week in calendar.monthcalendar(year, month):
         cols = st.columns(7)
-        for col, n in zip(cols, week):
-            if not n:
+        for col, day_number in zip(cols, week):
+            if not day_number:
                 col.markdown('<div style="height:65px"></div>', unsafe_allow_html=True)
                 continue
-            val = values.get(date(y, m, n))
+            value = values.get(date(year, month, day_number))
             bg, fg, detail = '#0D1522', '#8292A8', ''
-            if val is not None and val > 0.005: bg, fg, detail = 'rgba(33,197,142,.18)', '#21C58E', '+
+            if value is not None and value > 0.005:
+                bg, fg, detail = 'rgba(33,197,142,.18)', '#21C58E', f'+${value:,.2f}'
+            elif value is not None and value < -0.005:
+                bg, fg, detail = 'rgba(240,93,108,.18)', '#F05D6C', f'-${abs(value):,.2f}'
+            html = (
+                f'<div style="height:65px;background:{bg};border:1px solid #1C2A3B;border-radius:6px;padding:7px;text-align:center">'
+                f'<b>{day_number}</b><div style="color:{fg};font-size:11px;margin-top:7px">{detail}</div></div>'
+            )
+            col.markdown(html, unsafe_allow_html=True)
+    st.caption('Monthly P&L is the sum of the daily P&L values returned by Alpaca. Blank dates have no reported session P&L.')
+
+
+@st.cache_data(ttl=300)
+def load_quant_returns():
     """Build aligned daily return series from real Alpaca bars."""
     frames, missing = {}, []
     for symbol in ALL_SYMBOLS:
-        bars = get_bars(symbol, "1Day", limit=90)
+        bars = get_bars(symbol, '1Day', limit=90)
         if bars is None or bars.empty or len(bars) < 8:
             missing.append(symbol)
             continue
-        idx = pd.to_datetime(bars["time"], utc=True)
-        series = pd.Series(bars["close"].astype(float).values, index=idx).sort_index()
+        idx = pd.to_datetime(bars['time'], utc=True)
+        series = pd.Series(bars['close'].astype(float).values, index=idx).sort_index()
         frames[symbol] = series.pct_change()
     if not frames:
         return pd.DataFrame(), missing
     returns = pd.concat(frames, axis=1).sort_index().tail(60)
     return returns.dropna(axis=1, thresh=8), missing
-
 
 def quant_heatmap(matrix, title, zmin=-1, zmax=1):
     fig = go.Figure(go.Heatmap(
