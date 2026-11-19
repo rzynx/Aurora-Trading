@@ -100,6 +100,7 @@ def chart_layout(fig, height=320):
     return fig
 
 
+@st.cache_data(ttl=300)
 def get_equity_history():
     """Fetch broker-sourced equity history; return None if endpoint/data unavailable."""
     try:
@@ -272,37 +273,43 @@ def render_market_floor():
 
 
 
+@st.cache_data(ttl=20)
+def load_live_tracker_data():
+    """Cache broker market/position snapshot to avoid duplicate API calls on reruns."""
+    live_positions = get_positions()
+    symbols = list(dict.fromkeys(list(ALL_SYMBOLS) + list(live_positions.keys())))
+    rows, unavailable = [], []
+    for symbol in symbols:
+        bars = get_bars(symbol, "1Min", limit=3)
+        if bars is None or bars.empty:
+            unavailable.append(symbol)
+            continue
+        last = bars.iloc[-1]
+        previous = bars.iloc[-2] if len(bars) > 1 else None
+        price = float(last["close"])
+        prior = float(previous["close"]) if previous is not None else price
+        change = ((price / prior) - 1) * 100 if prior else 0.0
+        position = live_positions.get(symbol)
+        rows.append({
+            "SYMBOL": symbol,
+            "LAST PRICE": price,
+            "1M CHANGE %": change,
+            "VOLUME": float(last["volume"]),
+            "POSITION": "LONG" if position and float(position.qty) > 0 else ("SHORT" if position else "—"),
+            "QTY": float(position.qty) if position else 0.0,
+            "UNREALIZED P&L": float(position.unrealized_pl) if position else None,
+            "P&L %": float(position.unrealized_plpc) * 100 if position else None,
+            "BAR TIME (UTC)": pd.to_datetime(last["time"], utc=True).strftime("%H:%M:%S"),
+        })
+    return pd.DataFrame(rows), unavailable
+
+
 def render_live_tracker():
     """Refreshable main-screen market and open-position monitor."""
     st.markdown('<div class="panel-title">LIVE TRACKER · MARKET TAPE + OPEN POSITIONS</div>', unsafe_allow_html=True)
     st.caption("Broker-sourced Alpaca one-minute bars and current paper positions · refreshes every 30 seconds.")
     try:
-        live_positions = get_positions()
-        symbols = list(dict.fromkeys(list(ALL_SYMBOLS) + list(live_positions.keys())))
-        rows, unavailable = [], []
-        for symbol in symbols:
-            bars = get_bars(symbol, "1Min", limit=3)
-            if bars is None or bars.empty:
-                unavailable.append(symbol)
-                continue
-            last = bars.iloc[-1]
-            previous = bars.iloc[-2] if len(bars) > 1 else None
-            price = float(last["close"])
-            prior = float(previous["close"]) if previous is not None else price
-            change = ((price / prior) - 1) * 100 if prior else 0.0
-            position = live_positions.get(symbol)
-            rows.append({
-                "SYMBOL": symbol,
-                "LAST PRICE": price,
-                "1M CHANGE %": change,
-                "VOLUME": float(last["volume"]),
-                "POSITION": "LONG" if position and float(position.qty) > 0 else ("SHORT" if position else "—"),
-                "QTY": float(position.qty) if position else 0.0,
-                "UNREALIZED P&L": float(position.unrealized_pl) if position else None,
-                "P&L %": float(position.unrealized_plpc) * 100 if position else None,
-                "BAR TIME (UTC)": pd.to_datetime(last["time"], utc=True).strftime("%H:%M:%S"),
-            })
-        frame = pd.DataFrame(rows)
+        frame, unavailable = load_live_tracker_data()
         if frame.empty:
             st.warning("No live bars returned. Check Alpaca market-data access.")
             return
