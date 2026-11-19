@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import Optional
 import math
 from .config import ALL_SYMBOLS, HTF, MTF, LTF, MIN_CONFLUENCE_SCORE, RISK_PER_TRADE, MAX_OPEN_POSITIONS
-from .data import get_bars, get_news, get_account, get_positions, submit_market_order, close_position
+from .data import get_bars, get_news, get_account, get_positions, submit_bracket_order, close_position
 from .indicators import add_indicators, detect_regime, detect_fvgs, confluence_score
 from .quant import volatility_adjusted_size, check_daily_loss_limit, portfolio_heat
 
@@ -137,19 +137,33 @@ def run_daily_scan(symbols: Optional[list] = None, execute: bool = False, max_ne
             analysis['execution_status'] = 'BLOCKED — gross exposure at/above 75%'
             print(f'   BLOCKED {symbol}: portfolio gross exposure at/above 75%')
             continue
+        # Crypto is deliberately blocked until a broker-supported, linked
+        # protective-exit implementation is available. Alpaca currently supports
+        # only simple order classes for crypto, not bracket/OCO orders.
+        if '/' in symbol:
+            analysis['execution_status'] = 'BLOCKED — crypto entries paused: broker-linked stop/target unavailable'
+            print(f'   BLOCKED {symbol}: crypto protective exits are not safely supported')
+            continue
         try:
-            order = submit_market_order(symbol, analysis['size'], 'buy')
+            entry = float(analysis.get('entry_price') or 0)
+            atr = float(analysis.get('atr') or 0)
+            stop_price = entry - 1.4 * atr
+            target_price = entry + 2.8 * atr
+            if entry <= 0 or atr <= 0 or stop_price <= 0:
+                raise ValueError('Invalid entry/ATR; refusing unprotected order')
+            order = submit_bracket_order(symbol, analysis['size'], target_price, stop_price)
             order_id = str(getattr(order, 'id', 'submitted'))
-            analysis['execution_status'] = 'PAPER BUY SUBMITTED'
+            analysis['execution_status'] = 'PAPER BRACKET BUY SUBMITTED'
             analysis['order_id'] = order_id
-            print(f"   PAPER BUY submitted: {analysis['size']} {symbol} | order={order_id}")
-            # Reserve slot/exposure for this scan to avoid stacking correlated orders.
+            analysis['stop_loss_price'] = round(stop_price, 2)
+            analysis['take_profit_price'] = round(target_price, 2)
+            print(f"   PAPER BRACKET BUY submitted: {analysis['size']} {symbol} | stop={stop_price:.2f} target={target_price:.2f} | order={order_id}")
             positions[symbol] = True
             new_entries += 1
-            heat['heat_pct'] += min(analysis['size']*analysis.get('entry_price', 0)/max(heat['equity'], 1), 0.25)
+            heat['heat_pct'] += min(analysis['size']*entry/max(heat['equity'], 1), 0.25)
         except Exception as exc:
-            analysis['execution_status'] = f'ORDER FAILED: {exc}'
-            print(f'   ORDER FAILED {symbol}: {exc}')
+            analysis['execution_status'] = f'BRACKET ORDER FAILED: {exc}'
+            print(f'   BRACKET ORDER FAILED {symbol}: {exc}')
     return results
 
 
