@@ -85,7 +85,10 @@ def run_auto_cycle(force=False):
 
     log(f"Paper account equity: ${float(account.equity):,.2f}")
     # Crypto exits run every cycle; stock exits run only during stock market hours.
-    manage_exits(stock_session=stock_session)
+    # Do not run the legacy ATR exit manager: it recalculates levels each cycle
+    # and can close positions not opened by AURORA. Equity bracket orders now
+    # hold exits at Alpaca; crypto entries are paused until safe OCO support exists.
+    log("Broker-held equity bracket exits enabled; crypto entries remain blocked.")
     allowed, daily_pnl = check_daily_loss_limit()
     if not allowed:
         log(f"DAILY P&L LIMIT LOCK: {daily_pnl * 100:.2f}%; no new entries")
