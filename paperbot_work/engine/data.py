@@ -223,3 +223,106 @@ def close_position(symbol):
     except Exception as exc:
         print(f'[data] Close error {symbol}: {exc}')
         return False
+
+
+def get_options_liquidity_surface(underlying, spot_price, days_ahead=45):
+    """
+    Fetch Alpaca option contracts + indicative snapshots for research visuals.
+    Returns contract-level quote, Greeks, IV, OI and displayed top-of-book size.
+    The free indicative feed is delayed/derived, not OPRA depth or institutional order flow.
+    """
+    import requests
+    from datetime import date, timedelta
+
+    key, secret = _credentials()
+    headers = {
+        "APCA-API-KEY-ID": key,
+        "APCA-API-SECRET-KEY": secret,
+        "accept": "application/json",
+    }
+    today = date.today()
+    params = {
+        "underlying_symbols": underlying,
+        "status": "active",
+        "expiration_date_gte": today.isoformat(),
+        "expiration_date_lte": (today + timedelta(days=int(days_ahead))).isoformat(),
+        "strike_price_gte": round(float(spot_price) * 0.80, 2),
+        "strike_price_lte": round(float(spot_price) * 1.20, 2),
+        "limit": 10000,
+    }
+    response = requests.get(
+        "https://paper-api.alpaca.markets/v2/options/contracts",
+        headers=headers, params=params, timeout=20,
+    )
+    response.raise_for_status()
+    contracts = response.json().get("option_contracts", [])
+    if not contracts:
+        return pd.DataFrame()
+
+    snapshots = {}
+    page_token = None
+    for _ in range(5):
+        snapshot_params = {"feed": "indicative", "limit": 1000}
+        if page_token:
+            snapshot_params["page_token"] = page_token
+        snap_response = requests.get(
+            f"https://data.alpaca.markets/v1beta1/options/snapshots/{underlying}",
+            headers=headers, params=snapshot_params, timeout=20,
+        )
+        snap_response.raise_for_status()
+        payload = snap_response.json()
+        snapshots.update(payload.get("snapshots", {}))
+        page_token = payload.get("next_page_token")
+        if not page_token:
+            break
+
+    rows = []
+    for contract in contracts:
+        symbol = contract.get("symbol")
+        snap = snapshots.get(symbol, {})
+        quote = snap.get("latestQuote") or {}
+        trade = snap.get("latestTrade") or {}
+        greeks = snap.get("greeks") or {}
+        bid = float(quote.get("bp") or 0)
+        ask = float(quote.get("ap") or 0)
+        bid_size = float(quote.get("bs") or 0)
+        ask_size = float(quote.get("as") or 0)
+        mid = (bid + ask) / 2 if bid > 0 and ask > 0 else 0
+        spread_pct = ((ask - bid) / mid * 100) if mid > 0 and ask >= bid else None
+        dte = (date.fromisoformat(contract["expiration_date"]) - today).days
+        rows.append({
+            "contract": symbol,
+            "underlying": underlying,
+            "type": contract.get("type", "").upper(),
+            "expiration": contract.get("expiration_date"),
+            "dte": dte,
+            "strike": float(contract.get("strike_price") or 0),
+            "open_interest": float(contract.get("open_interest") or 0),
+            "open_interest_date": contract.get("open_interest_date"),
+            "bid": bid or None,
+            "ask": ask or None,
+            "mid": mid or None,
+            "bid_size": bid_size,
+            "ask_size": ask_size,
+            "bid_depth_usd": bid * bid_size * 100,
+            "ask_depth_usd": ask * ask_size * 100,
+            "spread_pct": spread_pct,
+            "trade_size": float(trade.get("s") or 0),
+            "iv": float(snap.get("impliedVolatility") or 0) * 100,
+            "delta": float(greeks.get("delta") or 0),
+            "gamma": float(greeks.get("gamma") or 0),
+            "theta": float(greeks.get("theta") or 0),
+            "vega": float(greeks.get("vega") or 0),
+            "quote_time": quote.get("t"),
+            "feed": "INDICATIVE",
+        })
+    frame = pd.DataFrame(rows)
+    if frame.empty:
+        return frame
+    frame = frame[(frame["iv"] > 0) | frame["bid"].notna() | frame["ask"].notna()]
+    frame["two_sided_depth_usd"] = frame[["bid_depth_usd", "ask_depth_usd"]].min(axis=1)
+    frame["liquidity_proxy"] = (
+        frame["open_interest"].clip(lower=0).pow(0.5)
+        * frame["two_sided_depth_usd"].clip(lower=0).pow(0.5)
+    )
+    return frame.sort_values(["expiration", "strike", "type"]).reset_index(drop=True)
