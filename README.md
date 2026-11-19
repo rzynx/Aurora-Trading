@@ -2,14 +2,14 @@
   <img src="paperbot_work/dashboard/assets/aurora-logo.svg" alt="AURORA TRADING" width="760" />
   <h1>AURORA TRADING</h1>
   <p><strong>Systematic strategies · Execution monitoring · Risk control</strong></p>
-  <p>Institutional-inspired paper-trading research terminal.</p>
+  <p>Institutional-inspired trading research terminal.</p>
 </div>
 
 ---
 
 ## Overview
 
-AURORA is a paper-trading dashboard and research workspace built around market data, adaptive technical analysis, news context, trade monitoring, and risk controls.
+AURORA is trading dashboard and research workspace built around market data, adaptive technical analysis, news context, trade monitoring, and risk controls.
 
 ## Features
 
