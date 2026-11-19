@@ -19,7 +19,8 @@ ALL_SYMBOLS = CORE_SYMBOLS + STOCK_WATCHLIST + CRYPTO_SYMBOLS
 # ============== RISK ==============
 RISK_PER_TRADE = 0.005          # 0.5% per trade (conservative paper default)
 MAX_OPEN_POSITIONS = 3
-DAILY_LOSS_LIMIT = 0.02         # 2% daily circuit breaker
+DAILY_LOSS_LIMIT_DOLLARS = 1100.0   # Hard daily paper-account loss lock
+DAILY_PROFIT_TARGET_DOLLARS = 1100000.0  # Stop new entries after this daily gain
 MAX_POSITION_PCT = 0.10         # Max 10% of equity in one name
 
 # ============== TIMEFRAMES ==============
