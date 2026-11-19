@@ -210,6 +210,67 @@ def render_market_floor():
 
 
 
+
+def render_live_tracker():
+    """Refreshable main-screen market and open-position monitor."""
+    st.markdown('<div class="panel-title">LIVE TRACKER · MARKET TAPE + OPEN POSITIONS</div>', unsafe_allow_html=True)
+    st.caption("Broker-sourced Alpaca one-minute bars and current paper positions · refreshes every 30 seconds.")
+    try:
+        live_positions = get_positions()
+        symbols = list(dict.fromkeys(list(ALL_SYMBOLS) + list(live_positions.keys())))
+        rows, unavailable = [], []
+        for symbol in symbols:
+            bars = get_bars(symbol, "1Min", limit=3)
+            if bars is None or bars.empty:
+                unavailable.append(symbol)
+                continue
+            last = bars.iloc[-1]
+            previous = bars.iloc[-2] if len(bars) > 1 else None
+            price = float(last["close"])
+            prior = float(previous["close"]) if previous is not None else price
+            change = ((price / prior) - 1) * 100 if prior else 0.0
+            position = live_positions.get(symbol)
+            rows.append({
+                "SYMBOL": symbol,
+                "LAST PRICE": price,
+                "1M CHANGE %": change,
+                "VOLUME": float(last["volume"]),
+                "POSITION": "LONG" if position and float(position.qty) > 0 else ("SHORT" if position else "—"),
+                "QTY": float(position.qty) if position else 0.0,
+                "UNREALIZED P&L": float(position.unrealized_pl) if position else None,
+                "P&L %": float(position.unrealized_plpc) * 100 if position else None,
+                "BAR TIME (UTC)": pd.to_datetime(last["time"], utc=True).strftime("%H:%M:%S"),
+            })
+        frame = pd.DataFrame(rows)
+        if frame.empty:
+            st.warning("No live bars returned. Check Alpaca market-data access.")
+            return
+        open_rows = frame[frame["POSITION"] != "—"]
+        gainers = int((frame["1M CHANGE %"] > 0).sum())
+        decliners = int((frame["1M CHANGE %"] < 0).sum())
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("SYMBOLS TRACKED", len(frame))
+        k2.metric("ADVANCING", gainers)
+        k3.metric("DECLINING", decliners)
+        k4.metric("OPEN POSITIONS", len(open_rows))
+        frame = frame.sort_values(["POSITION", "1M CHANGE %"], ascending=[True, False])
+        st.dataframe(frame, use_container_width=True, hide_index=True,
+            column_config={
+                "LAST PRICE": st.column_config.NumberColumn(format="$%.4f"),
+                "1M CHANGE %": st.column_config.NumberColumn(format="%.3f%%"),
+                "VOLUME": st.column_config.NumberColumn(format="%,.0f"),
+                "QTY": st.column_config.NumberColumn(format="%.4f"),
+                "UNREALIZED P&L": st.column_config.NumberColumn(format="$%.2f"),
+                "P&L %": st.column_config.NumberColumn(format="%.2f%%"),
+            })
+        if unavailable:
+            st.caption("No recent bar: " + ", ".join(unavailable))
+        st.caption("Prices update when Alpaca returns new bars. This is a market/position monitor, not a live order-fill tape; timestamps are UTC.")
+    except Exception as exc:
+        st.warning(f"Live tracker temporarily unavailable: {exc}")
+
+
+
 def safe_account_snapshot():
     account = get_account()
     positions = get_positions()
@@ -283,6 +344,11 @@ def main():
 
     tabs = st.tabs(["DESK OVERVIEW", "MARKET ANALYTICS", "QUANT LAB / HEATMAPS", "MARKET FLOOR", "POSITIONS", "RISK & CONTROLS"])
     with tabs[0]:
+        @st.fragment(run_every="30s")
+        def live_tracker_fragment():
+            render_live_tracker()
+        live_tracker_fragment()
+
         left, right = st.columns([1.7, 1])
         with left:
             st.markdown('<div class="panel-title">02 / EQUITY CURVE · BROKER HISTORY</div>', unsafe_allow_html=True)
